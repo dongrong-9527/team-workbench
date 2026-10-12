@@ -147,6 +147,107 @@ export function pageInput(
     limit: number("limit", 50, 1, 100),
   };
 }
+// Current objects retain metadata from earlier actions. Only read the field owned by
+// this event format; an explicitly null current reason must never fall through.
+function eventReason(
+  kind: Ref["kind"],
+  action: string,
+  before: Record<string, any> | null,
+  after: Record<string, any> | null,
+): string | null {
+  if (!after) return null;
+  const reason = (value: unknown): string | null =>
+    typeof value === "string" ? value : null;
+  if (["updateCorrected", "acceptanceRecorded", "bugWaived"].includes(action))
+    return reason(after.reason);
+  if (action === "testRecorded") return reason(after.reuseReason);
+  if (kind === "requirement") {
+    if (
+      [
+        "suggestChange",
+        "refine",
+        "makeReady",
+        "start",
+        "revise",
+        "cancel",
+        "restore",
+      ].includes(action)
+    ) {
+      if (Object.hasOwn(after, "changeReason"))
+        return reason(after.changeReason);
+      if (action === "suggestChange")
+        return reason(after.sourceChangeSuggestion?.reason);
+    }
+    return null;
+  }
+  if (action === "requirementCancel")
+    return reason(
+      after.requirementId === null
+        ? after.detachmentReason
+        : after.cancellationReason,
+    );
+  if (action === "requirementImpact")
+    return reason(after.pendingChange?.reason);
+  // Canonical check state events inherit the last command metadata; their explanation
+  // belongs to the separate testRecorded event, not that inherited command reason.
+  if (
+    ["checkPass", "checkFail"].includes(action) &&
+    after.lastTestId !== before?.lastTestId
+  )
+    return null;
+  if (
+    ![
+      "claim",
+      "assign",
+      "start",
+      "submit",
+      "checkPass",
+      "checkFail",
+      "transfer",
+      "requestTransfer",
+      "reopen",
+      "cancel",
+      "block",
+      "unblock",
+      "setDependencies",
+      "approveParallel",
+      "defineChecks",
+      "designateReviewer",
+      "setRequired",
+      "refine",
+      "confirm",
+      "reject",
+    ].includes(action)
+  )
+    return null;
+  if (Object.hasOwn(after, "lastActionReason"))
+    return reason(after.lastActionReason);
+  switch (action) {
+    case "assign":
+    case "transfer":
+      return reason(after.transfer?.reason);
+    case "requestTransfer":
+      return reason(after.transferRequest?.reason);
+    case "block":
+      return reason(after.blocking?.reason);
+    case "unblock":
+      return reason(after.unblockReason);
+    case "approveParallel":
+      return reason(after.parallelApproval?.reason);
+    case "setRequired":
+      return reason(after.exclusionReason);
+    case "cancel":
+      return reason(after.cancellationReason);
+    case "reopen":
+      return reason(after.reopenReason);
+    case "confirm":
+      return reason(after.confirmation);
+    case "reject":
+      return reason(after.rejection?.reason);
+    default:
+      return null;
+  }
+}
 export function historyPage(
   db: Database,
   target: Ref,
@@ -177,11 +278,7 @@ export function historyPage(
       target,
       before,
       after,
-      reason:
-        after?.reason ??
-        after?.lastActionReason ??
-        after?.transfer?.reason ??
-        null,
+      reason: eventReason(target.kind, r.action, before, after),
     };
   });
   return {

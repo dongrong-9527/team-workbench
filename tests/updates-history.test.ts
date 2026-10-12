@@ -974,3 +974,251 @@ it("task_08 parent revision provenance follows cutoff-time links and survives la
   );
   expect(c.body.snapshot).toEqual(a.body.snapshot);
 });
+
+it("task_08 history shows requirement revision reasons and never inherits transfer reasons on later edits", async () => {
+  const r = await f.api<any>(
+    "POST",
+    "/api/requirements",
+    {
+      projectId: "p1",
+      title: "Reason scope",
+      source: { description: "Source" },
+      description: "Scope",
+      acceptorId: "product",
+      criteria: [{ id: "c1", text: "Works", required: true }],
+      priority: "medium",
+    },
+    "product",
+  );
+  expect(r.status).toBe(200);
+  expect(
+    (
+      await f.api(
+        "POST",
+        `/api/requirements/${r.body.id}/actions`,
+        {
+          action: "revise",
+          expectedVersion: 1,
+          kind: "behavior",
+          impactConfirmed: true,
+          affectedTaskIds: [],
+          affectedCheckIds: [],
+          reason: "Expanded scope",
+        },
+        "product",
+      )
+    ).status,
+  ).toBe(200);
+  const rh = await f.api<any>(
+    "GET",
+    `/api/objects/requirement/${r.body.id}/history`,
+  );
+  expect(rh.body.items.find((x: any) => x.action === "revise").reason).toBe(
+    "Expanded scope",
+  );
+  const t = await task();
+  expect(
+    (
+      await f.api(
+        "POST",
+        `/api/tasks/${t.id}/actions`,
+        {
+          action: "transfer",
+          expectedVersion: 1,
+          ownerId: null,
+          resetToPending: true,
+          reason: "Original handoff",
+          handoff: "Notes",
+        },
+        "product",
+      )
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await f.api(
+        "POST",
+        `/api/tasks/${t.id}/actions`,
+        { action: "refine", expectedVersion: 2, title: "Refined title" },
+        "product",
+      )
+    ).status,
+  ).toBe(200);
+  const th = await f.api<any>("GET", `/api/objects/task/${t.id}/history`);
+  expect(th.body.items.find((x: any) => x.action === "transfer").reason).toBe(
+    "Original handoff",
+  );
+  expect(
+    th.body.items.find((x: any) => x.action === "refine").reason,
+  ).toBeNull();
+});
+
+it.each([
+  [
+    "task",
+    "requirementCancel",
+    {
+      state: "cancelled",
+      requirementId: "r",
+      cancellationReason: "Cancelled scope",
+      lastActionReason: "Stale task",
+    },
+    "Cancelled scope",
+  ],
+  [
+    "task",
+    "requirementCancel",
+    {
+      state: "pending",
+      requirementId: null,
+      detachmentReason: "Keep independent",
+      cancellationReason: "Old cancellation",
+      lastActionReason: "Stale task",
+    },
+    "Keep independent",
+  ],
+  [
+    "task",
+    "requirementImpact",
+    {
+      pendingChange: { reason: "New behavior" },
+      lastActionReason: "Stale task",
+    },
+    "New behavior",
+  ],
+  [
+    "task",
+    "transfer",
+    { transfer: { reason: "Legacy transfer" } },
+    "Legacy transfer",
+  ],
+  [
+    "task",
+    "transfer",
+    { lastActionReason: null, transfer: { reason: "Old transfer" } },
+    null,
+  ],
+  [
+    "task",
+    "requestTransfer",
+    { transferRequest: { reason: "Legacy request" } },
+    "Legacy request",
+  ],
+  ["task", "refine", { transfer: { reason: "Old transfer" } }, null],
+  [
+    "task",
+    "testProgress",
+    { lastActionReason: "Old unblock", lastTestId: "new-test" },
+    null,
+  ],
+  [
+    "task",
+    "checkPass",
+    { lastActionReason: "Old unblock", lastTestId: "new-test" },
+    null,
+  ],
+  [
+    "bug",
+    "assign",
+    { transfer: { reason: "Repair handoff" } },
+    "Repair handoff",
+  ],
+  [
+    "bug",
+    "confirm",
+    { confirmation: "Confirmed reproduction" },
+    "Confirmed reproduction",
+  ],
+  ["bug", "reject", { rejection: { reason: "not_defect" } }, "not_defect"],
+  ["bug", "reopen", { reopenReason: "Reproduced again" }, "Reproduced again"],
+  [
+    "bug",
+    "block",
+    { blocking: { reason: "Needs dependency" } },
+    "Needs dependency",
+  ],
+  ["bug", "unblock", { unblockReason: "Dependency ready" }, "Dependency ready"],
+  [
+    "bug",
+    "refine",
+    {
+      transfer: { reason: "Old repair handoff" },
+      blocking: { reason: "Old blocker" },
+    },
+    null,
+  ],
+  [
+    "requirement",
+    "refine",
+    { changeReason: null, reason: "Stale field" },
+    null,
+  ],
+  ["requirement", "submitAcceptance", { changeReason: "Old revision" }, null],
+  [
+    "requirement",
+    "acceptanceRegression",
+    { changeReason: "Old revision" },
+    null,
+  ],
+  [
+    "requirement",
+    "acceptanceRecorded",
+    { reason: "Criterion failed", changeReason: "Old revision" },
+    "Criterion failed",
+  ],
+  [
+    "requirement",
+    "bugWaived",
+    { reason: "Deferred with follow-up" },
+    "Deferred with follow-up",
+  ],
+  [
+    "task",
+    "updateCorrected",
+    { reason: "More detail", lastActionReason: "Old workflow" },
+    "More detail",
+  ],
+  [
+    "task",
+    "testRecorded",
+    { reuseReason: "Unchanged check" },
+    "Unchanged check",
+  ],
+] as const)(
+  "task_08 reads the reason belonging to %s %s without altering immutable snapshots",
+  async (kind, action, after, expected) => {
+    const id = f.fresh("reason");
+    f.db
+      .prepare("INSERT INTO objects VALUES (?,?,?,1,?)")
+      .run(
+        id,
+        kind,
+        "p1",
+        JSON.stringify({ title: "History format", state: "pending" }),
+      );
+    const encoded = JSON.stringify(after);
+    const inserted = f.db
+      .prepare(
+        "INSERT INTO events(time,action,actor_id,target_kind,target_id,before_snapshot,after_snapshot) VALUES (?,?,?,?,?,?,?)",
+      )
+      .run(
+        "2026-10-12T02:00:00.000Z",
+        action,
+        "product",
+        kind,
+        id,
+        JSON.stringify({ lastTestId: "old-test" }),
+        encoded,
+      );
+    const h = await f.api<any>("GET", `/api/objects/${kind}/${id}/history`);
+    expect(h.status).toBe(200);
+    expect(h.body.items[0].reason).toBe(expected);
+    expect(
+      (
+        f.db
+          .prepare("SELECT after_snapshot FROM events WHERE seq=?")
+          .get(inserted.lastInsertRowid) as any
+      ).after_snapshot,
+    ).toBe(encoded);
+  },
+);
