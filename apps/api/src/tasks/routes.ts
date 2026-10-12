@@ -1,3 +1,4 @@
+import { BUSINESS_BODY_LIMIT } from "../../../../packages/contracts/src/input-limits.js";
 import { objectsPage, parseQuery } from "../workbench/query.js";
 import { parseTest, validateDefinitions } from "../testing/routes.js";
 import type { FastifyInstance } from "fastify";
@@ -5,6 +6,7 @@ import type { Database } from "better-sqlite3";
 import {
   fields,
   text,
+  narrative,
   mutationContext,
   requireRequest,
 } from "../auth/guards.js";
@@ -18,10 +20,10 @@ function validate(b: any) {
     "reviewerId",
     "role",
     "requirementId",
-    "exclusionReason",
   ])
     if (b[k] != null) text(b[k], 1, k === "title" ? 200 : 2000);
-  if ("definitionOfDone" in b) text(b.definitionOfDone, 0, 6000);
+  if (b.exclusionReason != null) narrative(b.exclusionReason, 1, 2000);
+  if ("definitionOfDone" in b) narrative(b.definitionOfDone, 0, 6000);
   if ("priority" in b && !["high", "medium", "low"].includes(b.priority))
     throw new DomainError(400, "Invalid priority");
   if ("kind" in b && !["frontend", "backend", "test", "other"].includes(b.kind))
@@ -44,7 +46,7 @@ export function taskRoutes(app: FastifyInstance, db: Database) {
     requireRequest(db, request);
     return getTask(db, request.params.id);
   });
-  app.post("/api/tasks", (request) => {
+  app.post("/api/tasks", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) => {
     const ctx = mutationContext(db, request);
     const b = fields(
       request.body,
@@ -81,59 +83,67 @@ export function taskRoutes(app: FastifyInstance, db: Database) {
     defineChecks: ["checks"],
     refine: ["title", "definitionOfDone", "priority"],
   };
-  app.post<{ Params: { id: string } }>("/api/tasks/:id/actions", (request) => {
-    const ctx = mutationContext(db, request);
-    const raw = request.body as any;
-    if (!raw || !Object.hasOwn(options, raw.action))
-      throw new DomainError(400, "Invalid action");
-    const b = fields(raw, ["action", "expectedVersion"], options[raw.action]);
-    validate(b);
-    if (
-      [
-        "assign",
-        "transfer",
-        "requestTransfer",
-        "reopen",
-        "cancel",
-        "block",
-        "unblock",
-        "approveParallel",
-        "setRequired",
-      ].includes(raw.action)
-    )
-      text(b.reason, 1, 2000);
-    if (["assign", "transfer", "requestTransfer"].includes(raw.action))
-      text(b.handoff, 1, 4000);
-    if (raw.action === "block") text(b.assistance, 1, 2000);
-    if (raw.action === "designateReviewer") text(b.reviewerId, 1, 128);
-    if (raw.action === "setRequired" && typeof b.required !== "boolean")
-      throw new DomainError(400, "required required");
-    if (["assign", "transfer"].includes(raw.action) && !("ownerId" in b))
-      throw new DomainError(400, "ownerId required");
-    if (raw.action === "setDependencies") {
+  app.post<{ Params: { id: string } }>(
+    "/api/tasks/:id/actions",
+    { bodyLimit: BUSINESS_BODY_LIMIT },
+    (request) => {
+      const ctx = mutationContext(db, request);
+      const raw = request.body as any;
+      if (!raw || !Object.hasOwn(options, raw.action))
+        throw new DomainError(400, "Invalid action");
+      const b = fields(raw, ["action", "expectedVersion"], options[raw.action]);
+      validate(b);
       if (
-        !Array.isArray(b.dependencyIds) ||
-        b.dependencyIds.length > 100 ||
-        new Set(b.dependencyIds).size !== b.dependencyIds.length
+        [
+          "assign",
+          "transfer",
+          "requestTransfer",
+          "reopen",
+          "cancel",
+          "block",
+          "unblock",
+          "approveParallel",
+          "setRequired",
+        ].includes(raw.action)
       )
-        throw new DomainError(400, "Invalid dependencies");
-      for (const id of b.dependencyIds) text(id, 1, 128);
-    }
-    if (raw.action === "defineChecks") validateDefinitions(b.checks);
-    if (b.test) b.test = parseTest(b.test);
-    if (["submit", "checkPass", "checkFail"].includes(raw.action) && !b.test) {
-      const keys =
-        raw.action === "submit"
-          ? ["done", "selfCheck", "environment"]
-          : ["result", "environment"];
-      const e = fields(
-        b.evidence,
-        keys,
-        raw.action === "submit" ? ["targetVersion"] : [],
-      );
-      if (e.targetVersion !== undefined) text(e.targetVersion, 1, 200);
-      for (const k of keys) text(e[k], 1, 4000);
-    }
-    return actTask(db, ctx, request.params.id, b as any);
-  });
+        narrative(b.reason, 1, 2000);
+      if (["assign", "transfer", "requestTransfer"].includes(raw.action))
+        narrative(b.handoff, 1, 4000);
+      if (raw.action === "block") narrative(b.assistance, 1, 2000);
+      if (raw.action === "designateReviewer") text(b.reviewerId, 1, 128);
+      if (raw.action === "setRequired" && typeof b.required !== "boolean")
+        throw new DomainError(400, "required required");
+      if (["assign", "transfer"].includes(raw.action) && !("ownerId" in b))
+        throw new DomainError(400, "ownerId required");
+      if (raw.action === "setDependencies") {
+        if (
+          !Array.isArray(b.dependencyIds) ||
+          b.dependencyIds.length > 100 ||
+          new Set(b.dependencyIds).size !== b.dependencyIds.length
+        )
+          throw new DomainError(400, "Invalid dependencies");
+        for (const id of b.dependencyIds) text(id, 1, 128);
+      }
+      if (raw.action === "defineChecks") validateDefinitions(b.checks);
+      if (b.test) b.test = parseTest(b.test);
+      if (
+        ["submit", "checkPass", "checkFail"].includes(raw.action) &&
+        !b.test
+      ) {
+        const keys =
+          raw.action === "submit"
+            ? ["done", "selfCheck", "environment"]
+            : ["result", "environment"];
+        const e = fields(
+          b.evidence,
+          keys,
+          raw.action === "submit" ? ["targetVersion"] : [],
+        );
+        if (e.targetVersion !== undefined) text(e.targetVersion, 1, 200);
+        for (const k of keys)
+          (k === "environment" ? text : narrative)(e[k], 1, 4000);
+      }
+      return actTask(db, ctx, request.params.id, b as any);
+    },
+  );
 }

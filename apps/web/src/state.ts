@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { allPages, request, setCsrf } from "./api/client";
+import { allPages, request, setCsrf } from "./api/client.js";
 export interface Member {
   id: string;
   displayName: string;

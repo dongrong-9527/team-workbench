@@ -455,7 +455,8 @@ function split() {
           </p>
           <article v-for="t in tests" class="source-item">
             <strong
-              >{{ nameOf(t.testerId) }} · {{ t.targetVersion }}
+              >{{ t.snapshot?.actorName ?? t.testerId }} ·
+              {{ t.targetVersion }}
               <span class="badge warning" v-if="t.selfTest">自测</span></strong
             ><small
               >{{ t.recordedAt }} · R{{ t.revision ?? "—" }} ·
@@ -471,7 +472,7 @@ function split() {
           <p v-if="!acceptances.length">尚无产品验收记录</p>
           <article v-for="a in acceptances" class="source-item">
             <strong
-              >{{ nameOf(a.acceptorId) }} ·
+              >{{ a.snapshot?.actorName ?? a.acceptorId }} ·
               {{ a.decision === "pass" ? "验收通过" : "退回返工" }}</strong
             ><small
               >R{{ a.revision }} · {{ a.targetVersion }} ·
@@ -487,7 +488,7 @@ function split() {
           <h2>修订与范围快照</h2>
           <article v-for="r in revisions" class="source-item">
             <strong>R{{ r.revision }} · 范围版本 {{ r.version }}</strong
-            ><small>{{ r.time }} · {{ nameOf(r.actorId) }}</small>
+            ><small>{{ r.time }} · {{ r.actorName ?? r.actorId }}</small>
             <p>{{ r.reason }}</p>
             <p>{{ r.snapshot.title }} · {{ r.snapshot.description }}</p>
             <p v-for="c in r.snapshot.criteria">{{ c.id }} · {{ c.text }}</p>

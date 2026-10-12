@@ -129,7 +129,11 @@ function projectAction(a: string) {
       ? [
           field("name", "项目名称"),
           ...(a === "create"
-            ? [field("description", "项目简介", "textarea", false)]
+            ? [
+                field("description", "项目简介", "textarea", false, {
+                  max: 2000,
+                }),
+              ]
             : []),
         ]
       : [],

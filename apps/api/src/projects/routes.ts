@@ -1,3 +1,4 @@
+import { BUSINESS_BODY_LIMIT } from "../../../../packages/contracts/src/input-limits.js";
 import { projectsPage, parseQuery } from "../workbench/query.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
@@ -5,6 +6,7 @@ import type { Role } from "../../../../packages/contracts/src/index.js";
 import {
   fields,
   text,
+  narrative,
   requireRequest,
   mutationContext,
 } from "../auth/guards.js";
@@ -52,14 +54,14 @@ export function projectRoutes(app: FastifyInstance, db: Database) {
       );
     },
   );
-  app.post("/api/projects", (request) => {
+  app.post("/api/projects", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) => {
     const ctx = mutationContext(db, request, true);
     const b = fields(request.body, ["name"], ["description"]);
     return createProject(
       db,
       ctx,
       text(b.name, 1, 120),
-      b.description === undefined ? "" : text(b.description, 0, 2000),
+      b.description === undefined ? "" : narrative(b.description, 0, 2000),
     );
   });
   for (const action of ["archive", "restore"] as const)

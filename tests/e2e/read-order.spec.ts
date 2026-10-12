@@ -43,6 +43,15 @@ test("task_10 project pagination stays bound to the newer query after reversed r
   page,
 }) => {
   await login(page, "viewer");
+  const expected = await page.evaluate(async () =>
+    (
+      await (
+        await fetch("/api/objects?projectId=pagination-order&limit=100")
+      ).json()
+    ).items.map((x: any) => `/task/${x.id}`),
+  );
+  expect(expected).toHaveLength(24);
+  expect(new Set(expected).size).toBe(24);
   await page.goto("/projects");
   let release!: () => void;
   let received!: () => void;
@@ -57,9 +66,12 @@ test("task_10 project pagination stays bound to the newer query after reversed r
   });
   await page.getByLabel("全局项目筛选").selectOption("p1");
   await held;
-  await page.getByLabel("全局项目筛选").selectOption("p2");
+  await page.getByLabel("全局项目筛选").selectOption("pagination-order");
   await expect(
-    page.getByRole("link", { name: "统一服务台表单的键盘操作", exact: true }),
+    page.getByRole("link", {
+      name: "pagination-order 分页事项 01",
+      exact: true,
+    }),
   ).toBeVisible();
   const completed = page.waitForResponse((r) =>
     r.url().endsWith("/api/objects?projectId=p1"),
@@ -74,14 +86,25 @@ test("task_10 project pagination stays bound to the newer query after reversed r
     page.getByRole("link", { name: "完善工作更新的字段校验", exact: true }),
   ).toHaveCount(0);
   const next = page.waitForResponse((r) =>
-    r.url().includes("/api/objects?projectId=p2&cursor="),
+    r.url().includes("/api/objects?projectId=pagination-order&cursor="),
   );
   await page.getByRole("button", { name: "加载更多", exact: true }).click();
   expect((await next).status()).toBe(200);
   await expect(
-    page.getByRole("link", { name: "服务台分页事项 23", exact: true }),
+    page.getByRole("link", {
+      name: "pagination-order 分页事项 24",
+      exact: true,
+    }),
   ).toBeVisible();
-  await expect(page.locator(".work-row")).toHaveCount(24);
+  await expect(page.locator(".work-row")).toHaveCount(expected.length);
+  expect(
+    await page
+      .locator(".work-title")
+      .evaluateAll((links) => links.map((a) => a.getAttribute("href"))),
+  ).toEqual(expected);
+  await expect(
+    page.getByRole("button", { name: "加载更多", exact: true }),
+  ).toHaveCount(0);
 });
 test("task_10 member project roles ignore an older pending project response", async ({
   page,

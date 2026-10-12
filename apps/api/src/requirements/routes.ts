@@ -1,3 +1,4 @@
+import { BUSINESS_BODY_LIMIT } from "../../../../packages/contracts/src/input-limits.js";
 import { pageInput } from "../history/query.js";
 import { objectsPage, parseQuery } from "../workbench/query.js";
 import type { FastifyInstance } from "fastify";
@@ -5,6 +6,7 @@ import type { Database } from "better-sqlite3";
 import {
   fields,
   text,
+  narrative,
   requireRequest,
   mutationContext,
 } from "../auth/guards.js";
@@ -15,7 +17,7 @@ import {
   changeRequirement,
   getRequirement,
 } from "./service.js";
-import { getRevisions } from "./revisions.js";
+import { getRevisions, scopeActorName } from "./revisions.js";
 function source(value: unknown) {
   const b = fields(
     value,
@@ -23,8 +25,9 @@ function source(value: unknown) {
     ["url", "description", "status", "checkedAt", "reason"],
   );
   if (!b.url && !b.description) throw new DomainError(400, "Source required");
-  for (const k of ["url", "description", "reason"])
-    if (k in b) text(b[k], 1, 2000);
+  if ("url" in b) text(b.url, 1, 2000);
+  for (const k of ["description", "reason"])
+    if (k in b) narrative(b[k], 1, 2000);
   if (b.url) {
     try {
       const u = new URL(String(b.url));
@@ -52,7 +55,7 @@ function validate(b: Record<string, unknown>) {
     if (k in b) text(b[k], 1, k === "title" ? 200 : 128);
   if ("role" in b && !["frontend", "backend", "test"].includes(String(b.role)))
     throw new DomainError(400, "Invalid role");
-  if ("description" in b) text(b.description, 0, 6000);
+  if ("description" in b) narrative(b.description, 0, 6000);
   if (
     "priority" in b &&
     !["high", "medium", "low"].includes(String(b.priority))
@@ -66,9 +69,9 @@ function validate(b: Record<string, unknown>) {
     for (const c of b.criteria) {
       const p = fields(c, ["id", "text"], ["required", "exclusionReason"]);
       if (p.required === undefined) c.required = true;
-      if (p.required === false) text(p.exclusionReason, 1, 2000);
+      if (p.required === false) narrative(p.exclusionReason, 1, 2000);
       text(p.id, 1, 128);
-      text(p.text, 1, 2000);
+      narrative(p.text, 1, 2000);
       if (typeof c.required !== "boolean" || ids.has(p.id))
         throw new DomainError(400, "Invalid criteria");
       ids.add(p.id);
@@ -135,36 +138,45 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
         )
         .all(request.params.id, p.afterSeq, p.cutoffSeq, p.limit + 1) as any[];
       return {
-        items: rows
-          .slice(0, p.limit)
-          .map((r) => ({
-            revision: r.revision,
-            version: r.version,
-            snapshot: JSON.parse(r.snapshot),
-            actorId: r.actor_id,
-            time: r.time,
-            reason: r.reason,
-            affectedTaskIds: JSON.parse(r.affected_task_ids),
-            affectedCheckIds: JSON.parse(r.affected_check_ids),
-          })),
+        items: rows.slice(0, p.limit).map((r) => ({
+          revision: r.revision,
+          version: r.version,
+          snapshot: JSON.parse(r.snapshot),
+          actorId: r.actor_id,
+          actorName: scopeActorName(
+            db,
+            request.params.id,
+            r.version,
+            r.actor_id,
+          ),
+          time: r.time,
+          reason: r.reason,
+          affectedTaskIds: JSON.parse(r.affected_task_ids),
+          affectedCheckIds: JSON.parse(r.affected_check_ids),
+        })),
         cutoffSeq: p.cutoffSeq,
         nextAfterSeq: rows.length > p.limit ? rows[p.limit - 1].version : null,
       };
     },
   );
-  app.post("/api/requirements", (request) => {
-    const ctx = mutationContext(db, request);
-    const b = fields(
-      request.body,
-      ["projectId", "title", "source", "description", "criteria", "priority"],
-      ["role", "acceptorId"],
-    );
-    text(b.projectId, 1, 128);
-    validate(b);
-    return createRequirement(db, ctx, b as any);
-  });
+  app.post(
+    "/api/requirements",
+    { bodyLimit: BUSINESS_BODY_LIMIT },
+    (request) => {
+      const ctx = mutationContext(db, request);
+      const b = fields(
+        request.body,
+        ["projectId", "title", "source", "description", "criteria", "priority"],
+        ["role", "acceptorId"],
+      );
+      text(b.projectId, 1, 128);
+      validate(b);
+      return createRequirement(db, ctx, b as any);
+    },
+  );
   app.post<{ Params: { id: string } }>(
     "/api/requirements/:id/actions",
+    { bodyLimit: BUSINESS_BODY_LIMIT },
     (request) => {
       const ctx = mutationContext(db, request);
       const raw = request.body as any;
@@ -207,7 +219,7 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
           String(b.action),
         )
       )
-        text(b.reason, 1, 2000);
+        narrative(b.reason, 1, 2000);
       if (b.action === "makeReady" && !b.source)
         throw new DomainError(400, "Source required");
       if (b.action === "revise") {

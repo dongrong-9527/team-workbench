@@ -106,6 +106,20 @@ export function text(value: unknown, min: number, max: number): string {
   return value;
 }
 
+// Prose keeps intentional spacing and line breaks; identity/scalar fields use text().
+export function narrative(value: unknown, min: number, max: number): string {
+  if (
+    typeof value !== "string" ||
+    Buffer.from(value).toString("utf8") !== value ||
+    value.length < min ||
+    value.length > max ||
+    (min > 0 && !value.trim()) ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value)
+  )
+    throw new DomainError(400, "Invalid request");
+  return value;
+}
+
 export function loginName(value: unknown): string {
   const login = text(value, 1, 64);
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(login))

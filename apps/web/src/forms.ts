@@ -1,4 +1,4 @@
-import { state, nameOf, zh, today, projectOf } from "./state";
+import { state, nameOf, zh, today, projectOf } from "./state.js";
 export interface Field {
   key: string;
   label: string;
@@ -28,13 +28,48 @@ export interface FormSpec {
 }
 export const options = (values: string[]) =>
   values.map((value) => ({ value, label: zh(value) }));
+// Defaults shared across forms; action-specific exceptions are explicit below.
+const fieldLimits: Record<string, number> = {
+  title: 200,
+  login: 64,
+  displayName: 100,
+  name: 120,
+  description: 6000,
+  definitionOfDone: 6000,
+  sourceDescription: 2000,
+  sourceReason: 2000,
+  sourceUrl: 2000,
+  exclusionReason: 2000,
+  assistance: 2000,
+  reason: 2000,
+  handoff: 4000,
+  expected: 4000,
+  actual: 4000,
+  reproduction: 4000,
+  fix: 4000,
+  impact: 4000,
+  selfCheck: 4000,
+  explanation: 4000,
+  environment: 4000,
+  targetVersion: 200,
+  reuseReason: 4000,
+  plan: 4000,
+  done: 6000,
+  next: 6000,
+  obstacle: 6000,
+  requirementId: 128,
+  taskId: 128,
+  bugId: 128,
+  duplicateOfId: 128,
+  reusedFromId: 128,
+};
 export const field = (
   key: string,
   label: string,
   type = "text",
   required = true,
   extra: Partial<Field> = {},
-): Field => ({ key, label, type, required, ...extra });
+): Field => ({ key, label, type, required, max: fieldLimits[key], ...extra });
 const select = (
   key: string,
   label: string,
@@ -86,15 +121,15 @@ function scopeMembers(
           .map((m) => ({ value: m.id, label: m.displayName }));
       };
 }
-export const reason = () =>
-  field("reason", "操作原因", "textarea", true, { max: 2000 });
+export const reason = (max = 2000) =>
+  field("reason", "操作原因", "textarea", true, { max });
 const evidenceFields = (bug: boolean) => [
   ...(bug
     ? [
         field("fix", "修复内容", "textarea"),
         field("impact", "影响范围", "textarea"),
       ]
-    : [field("done", "完成内容", "textarea")]),
+    : [field("done", "完成内容", "textarea", true, { max: 4000 })]),
   field("selfCheck", "自查结果", "textarea"),
   field("environment", "检查环境"),
   field("targetVersion", "目标版本"),
@@ -167,7 +202,9 @@ export function createForm(
             field("definitionOfDone", "完成标准", "textarea"),
             memberField("ownerId", "主负责人"),
             memberField("reviewerId", "检查人"),
-            field("requirementId", "关联需求编号", "text", false),
+            field("requirementId", "关联需求编号", "text", false, {
+              max: 2000,
+            }),
             field("required", "需求必需任务", "checkbox", false),
             field("exclusionReason", "非必需原因", "textarea", true, {
               when: (v) => !v.required,
@@ -448,7 +485,7 @@ export function actionForm(
   ) {
     fields = [
       field("targetVersion", "目标版本"),
-      field("environment", "检查环境"),
+      field("environment", "检查环境", "text", true, { max: 2000 }),
       field("checks", "逐项测试结果", "results"),
       field("reusedFromId", "复用测试记录编号", "text", false),
       field("reuseReason", "复用原因", "textarea", false),
@@ -696,7 +733,7 @@ export function actionForm(
       select("decision", "验收结论", ["pass", "return"]),
       field("targetVersion", "目标版本"),
       field("criteria", "逐项验收", "criteria"),
-      reason(),
+      reason(4000),
       field("reworkTaskIds", "退回返工任务", "multi", false, {
         options: linked
           .filter((x) => x.objectKind === "task")
@@ -732,7 +769,7 @@ export function actionForm(
           .filter((x) => x.objectKind === "bug")
           .map((x) => ({ value: x.id, label: x.title })),
       }),
-      reason(),
+      reason(4000),
       memberField("followUpOwnerId", "后续跟进人", true),
       field("plan", "延期处理计划", "textarea"),
     ];

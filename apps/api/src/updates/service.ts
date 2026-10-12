@@ -16,7 +16,7 @@ import {
   maxSeq,
   type PageInput,
 } from "../history/query.js";
-import { fields, text } from "../auth/guards.js";
+import { fields, text, narrative } from "../auth/guards.js";
 import { parseRef } from "../history/routes.js";
 export function validateUpdate(raw: unknown): UpdateInput {
   const b = fields(
@@ -26,9 +26,9 @@ export function validateUpdate(raw: unknown): UpdateInput {
   );
   const target = parseRef(b.target);
   text(b.workDate, 10, 10);
-  text(b.done, 1, 6000);
+  narrative(b.done, 1, 6000);
   for (const k of ["next", "obstacle"])
-    if (b[k] !== undefined) text(b[k], 0, 6000);
+    if (b[k] !== undefined) narrative(b[k], 0, 6000);
   if (
     !["development", "repair", "testing", "coordination"].includes(
       String(b.contributionType),
@@ -37,7 +37,7 @@ export function validateUpdate(raw: unknown): UpdateInput {
     throw new DomainError(400, "Invalid contribution type");
   if (b.correctsId !== undefined) {
     text(b.correctsId, 1, 128);
-    text(b.reason, 1, 2000);
+    narrative(b.reason, 1, 2000);
   } else if (b.reason !== undefined)
     throw new DomainError(400, "Correction reason requires correctsId");
   return {

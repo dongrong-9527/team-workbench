@@ -4,6 +4,10 @@ import { request, ApiError } from "../api/client";
 import { state, zh } from "../state";
 import ConflictNotice from "./ConflictNotice.vue";
 import type { FormSpec } from "../forms";
+import {
+  BUSINESS_BODY_LIMIT,
+  CHECK_ENTRY_LIMIT,
+} from "../../../../packages/contracts/src/input-limits";
 const newId = () => crypto.randomUUID();
 const props = defineProps<{
   spec: FormSpec;
@@ -56,6 +60,13 @@ async function submit() {
   try {
     const body = props.spec.body(values.value);
     if (version.value !== undefined) body.expectedVersion = version.value;
+    if (
+      new TextEncoder().encode(JSON.stringify(body)).byteLength >
+      BUSINESS_BODY_LIMIT
+    )
+      throw new Error(
+        "本次内容超过 4 MiB，请减少条目或说明后再提交；输入已保留。",
+      );
     const next = JSON.stringify([
       props.spec.path,
       props.spec.method ?? "POST",
@@ -203,21 +214,23 @@ onUnmounted(() => {
                         required
                         maxlength="128" /></label
                     ><label
-                      >条目说明<input
+                      >条目说明<textarea
                         v-model="row.text"
                         required
-                        maxlength="2000" /></label
+                        maxlength="2000"
+                      /></label
                     ><label
                       ><input
                         v-model="row.required"
                         type="checkbox"
                       />必需条目</label
                     ><label v-if="!row.required"
-                      >排除原因<input
+                      >排除原因<textarea
                         v-model="row.exclusionReason"
                         required
                         maxlength="2000"
-                    /></label>
+                      />
+                    </label>
                   </div>
                   <button type="button" @click="values[f.key].splice(i, 1)">
                     移除条目
@@ -225,6 +238,7 @@ onUnmounted(() => {
                 </div>
                 <button
                   type="button"
+                  :disabled="values[f.key].length >= CHECK_ENTRY_LIMIT"
                   @click="
                     values[f.key].push({
                       id: newId(),
@@ -242,8 +256,8 @@ onUnmounted(() => {
                     <strong>{{ row.text }}</strong
                     ><small class="muted"> · {{ row.checkId ?? row.id }}</small
                     ><label
-                      >检查说明<input v-model="row.note" maxlength="4000"
-                    /></label>
+                      >检查说明<textarea v-model="row.note" maxlength="4000" />
+                    </label>
                   </div>
                   <label
                     >条目结果<select

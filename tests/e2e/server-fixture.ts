@@ -23,13 +23,15 @@ export async function startFixture(dir: string) {
   for (const [id, name, description] of [
     ["p1", "星河协作计划", "统一需求、开发与测试，让每一步进展可追溯。"],
     ["p2", "青禾服务台", "面向团队的轻量服务与体验优化。"],
+    ["pagination-access", "只读分页项目", "独立分页测试数据"],
+    ["pagination-order", "顺序分页项目", "独立分页测试数据"],
   ])
     db.prepare("INSERT INTO projects(id,name,description) VALUES(?,?,?)").run(
       id,
       name,
       description,
     );
-  for (const p of ["p1", "p2"])
+  for (const p of ["p1", "p2", "pagination-access", "pagination-order"])
     for (const [id, role, lead] of [
       ["admin", "product", 1],
       ["product", "product", 1],
@@ -103,6 +105,17 @@ export async function startFixture(dir: string) {
       ownerId: "dev2",
       reviewerId: "tester",
     });
+  for (const projectId of ["pagination-access", "pagination-order"])
+    for (let i = 1; i <= 24; i++)
+      await post("/api/tasks", {
+        projectId,
+        title: `${projectId} 分页事项 ${String(i).padStart(2, "0")}`,
+        kind: "backend",
+        definitionOfDone: "完成分页验证",
+        priority: "low",
+        ownerId: i === 1 ? "dev" : "dev2",
+        reviewerId: "tester",
+      });
   await app.listen({ host: "127.0.0.1", port: 4174 });
   return {
     close: async () => {

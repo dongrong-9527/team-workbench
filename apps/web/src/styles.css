@@ -750,6 +750,10 @@ th {
   border-bottom: 1px solid #e8edf5;
   font-size: 12px;
 }
+.source-item p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .source-item small {
   display: block;
   color: #8a97aa;

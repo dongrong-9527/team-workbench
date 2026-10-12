@@ -39,6 +39,22 @@ export function saveScope(
     new Date().toISOString(),
   );
 }
+// An object version identifies the exact immutable event, including its sequence
+// when multiple writes share a timestamp. Never consult the live member directory.
+export function scopeActorName(
+  db: Database,
+  id: string,
+  version: number,
+  actorId: string,
+): string {
+  const event = db
+    .prepare(
+      "SELECT after_snapshot FROM events WHERE target_kind='requirement' AND target_id=? AND actor_id=? AND json_extract(after_snapshot,'$.id')=target_id AND json_extract(after_snapshot,'$.version')=? ORDER BY seq LIMIT 1",
+    )
+    .get(id, actorId, version) as { after_snapshot: string } | undefined;
+  const name = event ? JSON.parse(event.after_snapshot).actorName : undefined;
+  return typeof name === "string" && name.length ? name : actorId;
+}
 export function getRevisions(
   db: Database,
   id: string,
@@ -84,7 +100,8 @@ export function recordExecutionParticipation(
   const o = db
     .prepare("SELECT current,project_id,kind FROM objects WHERE id=?")
     .get(objectId) as
-    { current: string; project_id: string; kind: string } | undefined;
+    | { current: string; project_id: string; kind: string }
+    | undefined;
   if (!o) throw new DomainError(404, "Object not found");
   const c = JSON.parse(o.current);
   if (o.kind !== "bug" && role === "test")

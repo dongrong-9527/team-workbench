@@ -1,9 +1,11 @@
+import { BUSINESS_BODY_LIMIT } from "../../../../packages/contracts/src/input-limits.js";
 import { evidencePage } from "../workbench/evidence.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import {
   fields,
   text,
+  narrative,
   mutationContext,
   requireRequest,
 } from "../auth/guards.js";
@@ -46,10 +48,15 @@ export function parseTest(raw: any, withVersion = false): TestInput {
     text(c.checkId, 1, 128);
     if (!["pass", "fail", "untested"].includes(c.result))
       throw new DomainError(400, "Invalid result");
-    if (c.note !== undefined) text(c.note, 1, 4000);
+    if (c.note !== undefined) narrative(c.note, 1, 4000);
   }
   for (const k of ["reusedFromId", "reuseReason", "bugId"])
-    if (b[k] !== undefined) text(b[k], 1, k === "reuseReason" ? 4000 : 128);
+    if (b[k] !== undefined)
+      (k === "reuseReason" ? narrative : text)(
+        b[k],
+        1,
+        k === "reuseReason" ? 4000 : 128,
+      );
   const { expectedVersion, ...input } = b;
   return input as TestInput;
 }
@@ -64,15 +71,15 @@ export function validateDefinitions(raw: any) {
   for (const x of raw) {
     fields(x, ["id", "text"], ["required", "exclusionReason"]);
     text(x.id, 1, 128);
-    text(x.text, 1, 2000);
+    narrative(x.text, 1, 2000);
     if (x.required !== undefined && typeof x.required !== "boolean")
       throw new DomainError(400, "Invalid required");
-    if (x.required === false) text(x.exclusionReason, 1, 2000);
+    if (x.required === false) narrative(x.exclusionReason, 1, 2000);
     x.required = x.required ?? true;
   }
 }
 export function testingRoutes(app: FastifyInstance, db: Database) {
-  app.post("/api/tests", (request) => {
+  app.post("/api/tests", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) => {
     const ctx = mutationContext(db, request),
       input = parseTest(request.body, true);
     return recordTest(db, ctx, input);

@@ -1,3 +1,4 @@
+import { BUSINESS_BODY_LIMIT } from "../../../../packages/contracts/src/input-limits.js";
 import type { Database } from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { mutationContext, requireRequest } from "../auth/guards.js";
@@ -8,7 +9,7 @@ export function updateRoutes(
   db: Database,
   clock?: () => Date,
 ) {
-  app.post("/api/updates", (request) =>
+  app.post("/api/updates", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) =>
     saveUpdate(
       db,
       mutationContext(db, request),

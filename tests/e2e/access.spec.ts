@@ -105,6 +105,7 @@ test("task_10 session expiry retains own draft, identity switch isolates it, mob
 test("task_10 admin creation activation password reset and deactivation use actual forms", async ({
   page,
   browser,
+  observeContext,
 }) => {
   await login(page, "admin");
   await page.goto("/members");
@@ -114,6 +115,7 @@ test("task_10 admin creation activation password reset and deactivation use actu
   await submit(page, "确认创建成员");
   const activation = await page.getByLabel("一次性票据").inputValue();
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  await observeContext(context);
   const p = await context.newPage();
   await p.goto("/activate");
   await p.getByLabel("管理员票据").fill(activation);
@@ -153,9 +155,11 @@ test("task_10 admin creation activation password reset and deactivation use actu
 test("task_10 revoked role hides actions after refresh and old open form is rejected", async ({
   page,
   browser,
+  observeContext,
 }) => {
   const url = await task(page, "撤权后的旧表单", "dev2", "p2");
   const c = await browser.newContext({ ignoreHTTPSErrors: true });
+  await observeContext(c);
   const p = await c.newPage();
   await login(p, "dev2");
   await p.goto(url);
@@ -192,7 +196,16 @@ test("task_10 read-only viewer cross-project reads, 500 recovery, real paginatio
 }) => {
   await login(page, "viewer");
   await expect(page.getByText("当前筛选下没有待处理事项。")).toBeVisible();
-  await page.goto("/projects/p2");
+  const expected = await page.evaluate(async () =>
+    (
+      await (
+        await fetch("/api/objects?projectId=pagination-access&limit=100")
+      ).json()
+    ).items.map((x: any) => `/task/${x.id}`),
+  );
+  expect(expected).toHaveLength(24);
+  expect(new Set(expected).size).toBe(24);
+  await page.goto("/projects/pagination-access");
   await expect(
     page.getByRole("button", { name: "新建任务", exact: true }),
   ).toHaveCount(0);
@@ -201,7 +214,15 @@ test("task_10 read-only viewer cross-project reads, 500 recovery, real paginatio
   ).toHaveCount(0);
   await expect(page.locator(".work-row")).toHaveCount(20);
   await page.getByRole("button", { name: "加载更多" }).click();
-  await expect(page.locator(".work-row")).toHaveCount(25);
+  await expect(page.locator(".work-row")).toHaveCount(expected.length);
+  expect(
+    await page
+      .locator(".work-title")
+      .evaluateAll((links) => links.map((a) => a.getAttribute("href"))),
+  ).toEqual(expected);
+  await expect(
+    page.getByRole("button", { name: "加载更多", exact: true }),
+  ).toHaveCount(0);
   await page.getByLabel("负责人", { exact: true }).selectOption("dev");
   await expect(page.locator(".work-row")).toHaveCount(1);
   await page.route("**/api/my-work?*", (route) =>
@@ -256,7 +277,9 @@ test("task_10 double click and lost successful response replay one command; arch
   await action(page, "新建项目");
   await page.getByLabel("项目名称", { exact: true }).fill("合成归档项目");
   await submit(page, "确认新建项目");
-  await page.getByRole("link", { name: "合成归档项目 ↗", exact: true }).click();
+  await page
+    .getByRole("link", { name: "合成归档项目 ↗", exact: true })
+    .click();
   await action(page, "归档项目");
   await expect(page.getByText(/归档后所有成员只能阅读/)).toBeVisible();
   await submit(page, "确认归档项目");
