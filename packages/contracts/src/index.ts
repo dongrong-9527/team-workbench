@@ -290,6 +290,12 @@ export interface SeqPage<T> {
   nextAfterSeq: number | null;
 }
 
+// JavaScript/HTML text lengths use UTF-16 code units. Reserve room for review notes.
+export const REPORT_TEXT_LIMITS = {
+  generated: 190_000,
+  edited: 200_000,
+} as const;
+
 export interface ReportInput {
   date: LocalDate;
   timeZone: string;

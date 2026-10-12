@@ -727,3 +727,179 @@ it("task_09 concurrent edits append exactly one latest version and stale writer 
   );
   expect(f.db.prepare("SELECT * FROM report_versions").all()).toHaveLength(2);
 });
+it("task_09 rejects oversized generation and regeneration atomically with narrowing guidance", async () => {
+  event();
+  const original = await report({ memberIds: ["dev"], projectIds: ["p1"] });
+  for (let i = 0; i < 34; i++) await update({ done: "a".repeat(5990) });
+  const artifactBefore = f.db.prepare("SELECT * FROM report_versions").all();
+  const eventsBefore = f.db.prepare("SELECT * FROM events ORDER BY seq").all();
+  const updatesBefore = f.read("updates");
+  for (const [key, extra] of [
+    ["oversize-new", {}],
+    [
+      "oversize-regenerate",
+      { previousReportId: original.id, expectedVersion: 1 },
+    ],
+  ] as const) {
+    const response = await f.api<any>(
+      "POST",
+      "/api/reports",
+      input({ memberIds: ["dev"], projectIds: ["p1"], ...extra }),
+      "dev",
+      key,
+    );
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain("190000");
+    expect(response.body.error).toMatch(/fewer members or projects/);
+    expect(f.db.prepare("SELECT * FROM report_versions").all()).toEqual(
+      artifactBefore,
+    );
+    expect(
+      f.db.prepare("SELECT * FROM idempotency WHERE request_id=?").all(key),
+    ).toHaveLength(0);
+  }
+  expect(f.db.prepare("SELECT * FROM events ORDER BY seq").all()).toEqual(
+    eventsBefore,
+  );
+  expect(f.read("updates")).toEqual(updatesBefore);
+  // A rejected generation must not reserve its key, even when retrying narrower input.
+  expect(
+    (
+      await f.api<any>(
+        "POST",
+        "/api/reports",
+        input({ memberIds: ["dev2"], projectIds: ["p1"] }),
+        "dev",
+        "oversize-new",
+      )
+    ).status,
+  ).toBe(200);
+});
+it("task_09 exact generation boundary preserves all text and reserves editable capacity with exact replay", async () => {
+  event();
+  // Determine template overhead from the pure renderer, without first generating a draft.
+  const { collectSources } = await import("../apps/api/src/reports/sources.js");
+  const { renderReport } = await import("../apps/api/src/reports/render.js");
+  const selection = input({
+    timeZone: "Asia/Shanghai",
+    memberIds: ["dev"],
+    projectIds: ["p1"],
+  });
+  for (let i = 0; i < 31; i++) await update({ done: "a".repeat(5900) });
+  const final = await update({ done: "z" });
+  const seq = () => f.events().at(-1)!.seq;
+  const baseText = renderReport(
+    collectSources(f.db, selection, now, seq()).sources,
+  );
+  const fill = 190000 - baseText.length + 1;
+  expect(fill).toBeGreaterThan(0);
+  expect(fill).toBeLessThanOrEqual(6000);
+  const boundaryUpdate = await update({
+    done: "z".repeat(fill),
+    correctsId: final.id,
+    expectedVersion: 1,
+    reason: "boundary fixture",
+  });
+  const rendered = renderReport(
+    collectSources(f.db, selection, now, seq()).sources,
+  );
+  expect(rendered.length).toBe(190000);
+  const generated = await f.api<any>(
+    "POST",
+    "/api/reports",
+    selection,
+    "dev",
+    "boundary-generated",
+  );
+  expect(generated.status).toBe(200);
+  expect(generated.body.text).toBe(rendered);
+  expect(
+    (
+      await f.api(
+        "POST",
+        "/api/reports",
+        selection,
+        "dev",
+        "boundary-generated",
+      )
+    ).body,
+  ).toEqual(generated.body);
+  const unchanged = await f.api<any>(
+    "POST",
+    `/api/reports/${generated.body.id}/versions`,
+    { text: rendered, expectedVersion: 1 },
+    "dev",
+  );
+  expect(unchanged.status).toBe(200);
+  expect(unchanged.body.text).toBe(rendered);
+  const editedText = rendered + "\n" + "核".repeat(9999);
+  const payload = { text: editedText, expectedVersion: 2 };
+  const edited = await f.api<any>(
+    "POST",
+    `/api/reports/${unchanged.body.id}/versions`,
+    payload,
+    "dev",
+    "boundary-edit",
+  );
+  expect(edited.status).toBe(200);
+  expect(edited.body.text.length).toBe(200000);
+  expect(edited.body.text).toBe(editedText);
+  expect(
+    (
+      await f.api(
+        "POST",
+        `/api/reports/${unchanged.body.id}/versions`,
+        payload,
+        "dev",
+        "boundary-edit",
+      )
+    ).body,
+  ).toEqual(edited.body);
+  expect(
+    (
+      await f.api(
+        "POST",
+        `/api/reports/${edited.body.id}/versions`,
+        { text: editedText + "x", expectedVersion: 3 },
+        "dev",
+        "over-edit",
+      )
+    ).status,
+  ).toBe(400);
+  expect(
+    f.db
+      .prepare("SELECT * FROM idempotency WHERE request_id='over-edit'")
+      .all(),
+  ).toHaveLength(0);
+  await update({
+    done: "z".repeat(fill + 1),
+    correctsId: boundaryUpdate.id,
+    expectedVersion: 2,
+    reason: "one character over boundary",
+  });
+  expect(
+    renderReport(collectSources(f.db, selection, now, seq()).sources).length,
+  ).toBe(190001);
+  expect(
+    (await f.api("POST", "/api/reports", selection, "dev", "over-generated"))
+      .status,
+  ).toBe(422);
+  expect(f.db.prepare("SELECT * FROM report_versions").all()).toHaveLength(3);
+  expect(
+    f.db
+      .prepare("SELECT * FROM idempotency WHERE request_id='over-generated'")
+      .all(),
+  ).toHaveLength(0);
+  // A valid earlier capture replays unchanged even when today's new source set is oversized.
+  expect(
+    (
+      await f.api(
+        "POST",
+        "/api/reports",
+        selection,
+        "dev",
+        "boundary-generated",
+      )
+    ).body,
+  ).toEqual(generated.body);
+});

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { REPORT_TEXT_LIMITS } from "../../../../packages/contracts/src/index.js";
 import { isDeepStrictEqual } from "node:util";
 import type { Database } from "better-sqlite3";
 import type {
@@ -14,6 +15,27 @@ import { createPolicy } from "../access/policy.js";
 import { maxSeq, pageInput } from "../history/query.js";
 import { validateReport, collectSources, sourceRef } from "./sources.js";
 import { renderReport } from "./render.js";
+function validateReportText(
+  value: unknown,
+  mode: keyof typeof REPORT_TEXT_LIMITS,
+): string {
+  const status = mode === "generated" ? 422 : 400;
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ||
+    Buffer.from(value).toString("utf8") !== value
+  )
+    throw new DomainError(status, "Invalid report text");
+  if (value.length > REPORT_TEXT_LIMITS[mode])
+    throw new DomainError(
+      status,
+      mode === "generated"
+        ? `Generated report exceeds ${REPORT_TEXT_LIMITS.generated} characters; generate separate reports with fewer members or projects. No source content was truncated.`
+        : `Report text exceeds ${REPORT_TEXT_LIMITS.edited} characters`,
+    );
+  return value;
+}
 interface Stored {
   seq: number;
   record: string;
@@ -126,6 +148,7 @@ export function generateReport(
           generatedAt,
           sourceCutoffSeq,
         ),
+        reportText = validateReportText(renderReport(sources), "generated"),
         id = randomUUID();
       return append(
         db,
@@ -140,7 +163,7 @@ export function generateReport(
           sourceCutoffSeq,
           stateCutoff,
           sources: sources.entries.map(sourceRef),
-          text: renderReport(sources),
+          text: reportText,
           edited: false,
           counts: sources.counts,
           reopenedIds: sources.reopenedIds,
@@ -157,14 +180,7 @@ export function editReport(
   text: string,
   clock: () => Date = () => new Date(),
 ): ReportVersion {
-  if (
-    typeof text !== "string" ||
-    !text.trim() ||
-    text.length > 200000 ||
-    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ||
-    Buffer.from(text).toString("utf8") !== text
-  )
-    throw new DomainError(400, "Invalid report text");
+  validateReportText(text, "edited");
   return mutate(
     db,
     {
