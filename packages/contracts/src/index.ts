@@ -16,6 +16,7 @@ export interface Event {
 }
 export type ProjectRef = { kind: "project"; id: Id };
 export type Action =
+  | "attach"
   | "read"
   | "manageMembers"
   | "manageProject"

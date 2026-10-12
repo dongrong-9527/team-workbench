@@ -1,3 +1,5 @@
+import { attachmentRoutes } from "./attachments/routes.js";
+import type { AttachmentOptions } from "./attachments/service.js";
 import { workbenchRoutes } from "./workbench/routes.js";
 import { reportRoutes } from "./reports/routes.js";
 import { updateRoutes } from "./updates/routes.js";
@@ -18,7 +20,11 @@ import { checkOrigin } from "./auth/guards.js";
 
 export function buildApp(
   db: Database,
-  options: { origin?: string; clock?: () => Date } = {},
+  options: {
+    origin?: string;
+    clock?: () => Date;
+    attachments?: AttachmentOptions;
+  } = {},
 ): FastifyInstance {
   const origin =
     options.origin ?? process.env.APP_ORIGIN ?? "https://localhost";
@@ -59,6 +65,13 @@ export function buildApp(
     db.prepare("SELECT 1").get();
     return { status: "ok" };
   });
+  attachmentRoutes(
+    app,
+    db,
+    options.attachments ?? {
+      directory: process.env.ATTACHMENT_PATH ?? "data/attachments",
+    },
+  );
   authRoutes(app, db);
   memberRoutes(app, db);
   projectRoutes(app, db);

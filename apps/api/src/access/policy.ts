@@ -61,6 +61,9 @@ export function createPolicy(db: Database) {
       lead = (r: unknown) => rs.some((x) => x.role === r && x.lead === 1);
     let allowed = false;
     switch (action) {
+      case "attach":
+        allowed = target.kind !== "project" && rs.length > 0;
+        break;
       case "manageMembers":
       case "manageProject":
         allowed = !!m.is_admin;

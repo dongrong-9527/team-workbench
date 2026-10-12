@@ -17,6 +17,8 @@ const messages: Record<string, string> = {
   403: "当前账号没有执行此操作的权限，请刷新权限后重试。",
   404: "记录不存在或已不可用。",
   409: "记录已变更，请对照最新记录后重新操作。",
+  413: "图片超过文件大小或附件配额，请缩小图片后重试。",
+  415: "图片无法读取，仅支持有效的 PNG、JPEG、WebP 静态图片。",
   422: "当前业务条件尚未满足，请检查填写内容与相关证据。",
   429: "操作过于频繁，请稍后重试。",
   500: "服务暂时异常，输入已保留，请稍后重试。",
@@ -27,7 +29,7 @@ export async function request<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body) headers.set("content-type", "application/json");
+  if (init.body && !(init.body instanceof FormData)) headers.set("content-type", "application/json");
   if (init.method && init.method !== "GET" && csrf)
     headers.set("x-csrf-token", csrf);
   let response: Response;

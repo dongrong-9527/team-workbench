@@ -5,3 +5,8 @@ dist/
 .env
 playwright-report/
 test-results/
+
+# Private runtime image store (default path)
+/data/attachments/
+# Optional local backup staging; prefer an external private directory.
+/backups/

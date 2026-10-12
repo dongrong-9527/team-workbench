@@ -14,11 +14,15 @@
     "typecheck": "tsc --noEmit && node scripts/typecheck-web.cjs --noEmit -p apps/web/tsconfig.json",
     "build": "tsc -p apps/api/tsconfig.json && node scripts/copy-migrations.mjs && vite build apps/web --config apps/web/vite.config.ts",
     "e2e": "playwright test",
-    "start": "node apps/api/dist/apps/api/src/server.js"
+    "start": "node apps/api/dist/apps/api/src/server.js",
+    "backup": "node apps/api/dist/scripts/backup.js",
+    "restore:verify": "node apps/api/dist/scripts/restore-verify.js"
   },
   "dependencies": {
+    "@fastify/multipart": "10.1.0",
     "better-sqlite3": "13.0.3",
     "fastify": "5.12.5",
+    "sharp": "0.35.5",
     "vue": "3.5.43",
     "vue-router": "5.4.0"
   },

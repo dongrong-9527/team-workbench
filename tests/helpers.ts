@@ -131,6 +131,7 @@ export async function createTestKit(
   let fixtureClock: Date | undefined;
   const app = buildApp(db, {
     origin: "https://workbench.test",
+    attachments: {directory:join(dir,"attachments")},
     clock: () => fixtureClock ?? options.clock?.() ?? new Date(),
   });
   app.addHook("onResponse", async () => {

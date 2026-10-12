@@ -14,6 +14,7 @@ import {
 import { actionForm, actionNames, createForm, type FormSpec } from "../forms";
 import ActionForm from "./ActionForm.vue";
 import HistoryList from "./HistoryList.vue";
+import AttachmentPanel from "./AttachmentPanel.vue";
 import type {
   SeqPage,
   WorkUpdate,
@@ -350,6 +351,7 @@ function split() {
         我的工作更新（{{ updates.length }}）
       </button>
     </div>
+    <AttachmentPanel :key="kind + o.id" :kind="kind" :id="o.id" :version="o.version" :can-upload="!!roles.length && !project?.archived" @uploaded="refresh++" />
     <div class="detail-layout">
       <div>
         <section v-if="tab === 'details'" class="panel panel-body">

@@ -45,7 +45,10 @@ export async function startFixture(dir: string) {
       db.prepare(
         "INSERT INTO roles(project_id,member_id,role,lead) VALUES(?,?,?,?)",
       ).run(p, id, role, lead);
-  const app = buildApp(db, { origin: "https://127.0.0.1:4173" });
+  const app = buildApp(db, {
+    origin: "https://127.0.0.1:4173",
+    attachments: { directory: join(dir, "attachments") },
+  });
   const sessions = Object.fromEntries(
     ["admin", "product", "dev", "tester"].map((id) => [
       id,

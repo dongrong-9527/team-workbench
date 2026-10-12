@@ -56,6 +56,7 @@ watch(
   { immediate: true },
 );
 const names: Record<string, string> = {
+  attachmentAdded: "添加图片证据",
   created: "创建",
   create: "创建",
   saveUpdate: "填写工作更新",
