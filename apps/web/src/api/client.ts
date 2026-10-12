@@ -42,7 +42,13 @@ export async function request<T>(
   } catch {
     throw new ApiError(0, "网络连接失败，输入已保留；恢复连接后可重试。");
   }
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json().catch(() => {
+    // A body can fail after successful headers (for example during navigation).
+    // Never let an unread response masquerade as a successful empty payload.
+    if (response.ok)
+      throw new ApiError(0, "响应数据无法读取，输入已保留；请重试。");
+    return {};
+  });
   if (!response.ok) {
     if (response.status === 401)
       window.dispatchEvent(new Event("workbench:expired"));
