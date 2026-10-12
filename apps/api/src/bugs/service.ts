@@ -179,7 +179,17 @@ export function createBug(db: Database, ctx: MutationContext, input: any): Bug {
         new Date().toISOString(),
         ctx.actorId,
         draft.id,
-        JSON.stringify({ ...draft, actorName: actor, projectName: project }),
+        JSON.stringify({
+          ...draft,
+          actorName: actor,
+          projectName: project,
+          ownerName:
+            (
+              db
+                .prepare("SELECT name FROM members WHERE id=?")
+                .get(draft.ownerId ?? "") as { name: string } | undefined
+            )?.name ?? null,
+        }),
       );
       reconcileTestRequirement(db, ctx, draft.requirementId);
       return draft;

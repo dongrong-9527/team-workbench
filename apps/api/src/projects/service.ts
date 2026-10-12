@@ -171,3 +171,36 @@ export function changeProject(
     return getProject(db, id);
   });
 }
+
+export function renameProject(
+  db: Database,
+  ctx: MutationContext,
+  id: string,
+  name: string,
+) {
+  return mutate(
+    db,
+    {
+      ...ctx,
+      authorize: (c) => {
+        ctx.authorize(c);
+        createPolicy(c).authorize(ctx.actorId, "manageProject", {
+          kind: "project",
+          id,
+        });
+      },
+    },
+    () => {
+      const old = getProject(db, id);
+      version(ctx, old);
+      if (old.name === name) return old;
+      const before = snapshot(db, id);
+      db.prepare("UPDATE projects SET name=?,version=version+1 WHERE id=?").run(
+        name,
+        id,
+      );
+      event(db, ctx, id, "projectRenamed", before);
+      return getProject(db, id);
+    },
+  );
+}

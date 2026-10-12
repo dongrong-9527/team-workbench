@@ -1,3 +1,5 @@
+import { updateRoutes } from "./updates/routes.js";
+import { historyRoutes } from "./history/routes.js";
 import { acceptanceRoutes } from "./acceptance/routes.js";
 import { AcceptanceError } from "./acceptance/service.js";
 import { bugRoutes } from "./bugs/routes.js";
@@ -14,7 +16,7 @@ import { checkOrigin } from "./auth/guards.js";
 
 export function buildApp(
   db: Database,
-  options: { origin?: string } = {},
+  options: { origin?: string; clock?: () => Date } = {},
 ): FastifyInstance {
   const origin =
     options.origin ?? process.env.APP_ORIGIN ?? "https://localhost";
@@ -27,13 +29,11 @@ export function buildApp(
   const app = Fastify({ bodyLimit: 16 * 1024, logger: false });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof DomainError)
-      return reply
-        .code(error.statusCode)
-        .send({
-          error: error.message,
-          ...(error instanceof AcceptanceError ? { reasons: error.reasons } : {}),
-          ...(error.latest !== undefined ? { latest: error.latest } : {}),
-        });
+      return reply.code(error.statusCode).send({
+        error: error.message,
+        ...(error instanceof AcceptanceError ? { reasons: error.reasons } : {}),
+        ...(error.latest !== undefined ? { latest: error.latest } : {}),
+      });
     if ((error as { code?: string }).code?.startsWith("SQLITE_BUSY"))
       return reply.code(503).send({ error: "Database busy; retry later" });
     const status = (error as { statusCode?: number }).statusCode;
@@ -65,5 +65,7 @@ export function buildApp(
   bugRoutes(app, db);
   testingRoutes(app, db);
   acceptanceRoutes(app, db);
+  updateRoutes(app, db, options.clock);
+  historyRoutes(app, db);
   return app;
 }

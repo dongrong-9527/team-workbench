@@ -1,3 +1,5 @@
+import { saveUpdate } from "../apps/api/src/updates/service.js";
+import { createTask } from "../apps/api/src/tasks/service.js";
 import { acceptanceRecords } from "../apps/api/src/acceptance/service.js";
 import { insertTestRecord, records } from "../apps/api/src/testing/evidence.js";
 import {
@@ -11,6 +13,8 @@ import { join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import type { Database } from "better-sqlite3";
 import type {
+  WorkUpdate,
+  UpdateInput,
   Event,
   Ref,
   TestInput,
@@ -38,6 +42,7 @@ export type Actor =
   | "tester";
 export type Method = "GET" | "POST" | "PUT" | "PATCH";
 export interface TestTables {
+  updates: WorkUpdate;
   acceptance_records: AcceptanceRecord;
   test_records: TestRecord;
   test_objects: {
@@ -50,6 +55,8 @@ export interface TestTables {
 }
 // Later modules add their real input fixtures here rather than placeholder business models.
 export interface FixtureMap {
+  correctionByOther: UpdateInput & { expectedVersion: number };
+  ownCorrection: UpdateInput & { expectedVersion: number };
   acceptanceWithCriticalOpenBug: AcceptanceInput & { expectedVersion: number };
   failedTest: TestInput;
   core: { projectId: string; objectId: string };
@@ -162,6 +169,7 @@ export async function createTestKit(): Promise<TestKit> {
     });
   });
   await app.listen({ host: "127.0.0.1", port: 0 });
+  let correctionFixture: FixtureMap["ownCorrection"] | undefined;
   return {
     db,
     path,
@@ -203,6 +211,12 @@ export async function createTestKit(): Promise<TestKit> {
       return { status: response.statusCode, body: response.json<T>() };
     },
     read(table) {
+      if (table === "updates")
+        return (
+          db
+            .prepare("SELECT record FROM updates ORDER BY recorded_seq")
+            .all() as { record: string }[]
+        ).map((x) => JSON.parse(x.record));
       if (table === "acceptance_records")
         return acceptanceRecords(db) as TestTables[typeof table][];
       if (table === "test_records")
@@ -240,6 +254,42 @@ export async function createTestKit(): Promise<TestKit> {
       }));
     },
     seed(name) {
+      if (name === "ownCorrection" || name === "correctionByOther") {
+        if (!correctionFixture) {
+          const t = createTask(
+            db,
+            { ...context, actorId: "product", requestId: "fixture-task" },
+            {
+              projectId: "p1",
+              title: "Fixture task",
+              kind: "backend",
+              definitionOfDone: "Checked",
+              priority: "medium",
+              ownerId: "dev",
+            },
+          );
+          const input: UpdateInput = {
+            target: { kind: "task", id: t.id },
+            workDate: "2026-10-11",
+            done: "Original validation",
+            contributionType: "coordination",
+          };
+          const u = saveUpdate(
+            db,
+            { ...context, actorId: "dev", requestId: "fixture-update" },
+            input,
+            () => new Date("2026-10-12T02:00:00.000Z"),
+          );
+          correctionFixture = {
+            ...input,
+            done: "更正后的校验说明",
+            reason: "补充细节",
+            correctsId: u.id,
+            expectedVersion: 1,
+          };
+        }
+        return { ...correctionFixture } as FixtureMap[typeof name];
+      }
       if (name === "failedTest" || name === "acceptanceWithCriticalOpenBug") {
         const input: TestInput = {
           target: { kind: "bug", id: "b1" },

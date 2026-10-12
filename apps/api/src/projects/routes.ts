@@ -9,7 +9,12 @@ import {
 } from "../auth/guards.js";
 import { DomainError } from "../db/mutate.js";
 import { createPolicy } from "../access/policy.js";
-import { getProject, createProject, changeProject } from "./service.js";
+import {
+  getProject,
+  createProject,
+  changeProject,
+  renameProject,
+} from "./service.js";
 const allowed: Role[] = ["product", "frontend", "backend", "test"];
 function roleList(value: unknown): Role[] {
   if (
@@ -33,6 +38,18 @@ export function projectRoutes(app: FastifyInstance, db: Database) {
     });
     return getProject(db, request.params.id);
   });
+  app.post<{ Params: { id: string } }>(
+    "/api/projects/:id/rename",
+    (request) => {
+      const b = fields(request.body, ["expectedVersion", "name"]);
+      return renameProject(
+        db,
+        mutationContext(db, request, true),
+        text(request.params.id, 1, 128),
+        text(b.name, 1, 120),
+      );
+    },
+  );
   app.post("/api/projects", (request) => {
     const ctx = mutationContext(db, request, true);
     const b = fields(request.body, ["name"], ["description"]);

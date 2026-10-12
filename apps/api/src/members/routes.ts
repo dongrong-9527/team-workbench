@@ -1,9 +1,18 @@
 import type { Database } from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { fields, loginName, mutationContext, text } from "../auth/guards.js";
-import { createMember, manageMember } from "./service.js";
+import { createMember, manageMember, renameMember } from "./service.js";
 
 export function memberRoutes(app: FastifyInstance, db: Database): void {
+  app.post<{ Params: { id: string } }>("/api/members/:id/rename", (request) => {
+    const b = fields(request.body, ["expectedVersion", "displayName"]);
+    return renameMember(
+      db,
+      mutationContext(db, request, true),
+      text(request.params.id, 1, 128),
+      text(b.displayName, 1, 100),
+    );
+  });
   app.post("/api/members", (request) => {
     const body = fields(request.body, ["login", "displayName"]);
     return createMember(

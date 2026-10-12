@@ -133,3 +133,36 @@ export function manageMember(
   // Ticket retries intentionally return only safe metadata. Lost responses require a fresh key/version.
   return raw ? { ...result, resetToken: raw } : result;
 }
+
+export function renameMember(
+  db: Database,
+  ctx: MutationContext,
+  id: string,
+  displayName: string,
+) {
+  return mutate(
+    db,
+    {
+      ...ctx,
+      authorize: (c) => {
+        ctx.authorize(c);
+        const actor = getMember(c, ctx.actorId);
+        if (!actor.is_admin) throw new DomainError(403, "Permission denied");
+      },
+    },
+    () => {
+      const old = getMember(db, id);
+      if (ctx.expectedVersion === undefined)
+        throw new DomainError(400, "expectedVersion required");
+      if (ctx.expectedVersion !== old.version)
+        throw new DomainError(409, "Version conflict", snapshot(old));
+      if (old.name === displayName) return snapshot(old);
+      db.prepare("UPDATE members SET name=?,version=version+1 WHERE id=?").run(
+        displayName,
+        id,
+      );
+      memberEvent(db, ctx.actorId, id, "memberRenamed", snapshot(old));
+      return snapshot(getMember(db, id));
+    },
+  );
+}

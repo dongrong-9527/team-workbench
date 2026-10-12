@@ -1,8 +1,5 @@
 import { reconcileRequirement } from "../requirements/reconcile.js";
-import {
-  insertTestRecord,
-  coverage,
-} from "../testing/evidence.js";
+import { insertTestRecord, coverage } from "../testing/evidence.js";
 import type {
   TestInput,
   TestRecord,
@@ -104,7 +101,9 @@ export function auth(
         throw new DomainError(409, "ARCHIVED");
       const requirement = parent(c, x);
       if (
-        ["claim", "start", "submit", "checkPass", "checkFail"].includes(action) &&
+        ["claim", "start", "submit", "checkPass", "checkFail"].includes(
+          action,
+        ) &&
         requirement &&
         (!requirement.scopeConfirmed || requirement.blocked)
       )
@@ -305,7 +304,7 @@ export function recordTaskCheck(
   const r = t.requirementId ? getRequirement(db, t.requirementId) : undefined;
   const self = !!db
     .prepare(
-      "SELECT 1 FROM task_work WHERE task_id=? AND actor_id=? AND activity='development'",
+      "SELECT 1 FROM execution_participations WHERE object_id=? AND member_id=? AND activity IN ('development','repair')",
     )
     .get(t.id, ctx.actorId);
   db.prepare("INSERT INTO task_checks VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").run(
@@ -355,7 +354,9 @@ export function actTask(
       const t = getTask(db, id);
       // Execution state applies only to a new command, after successful replay lookup.
       if (
-        ["claim", "start", "submit", "checkPass", "checkFail"].includes(cmd.action) &&
+        ["claim", "start", "submit", "checkPass", "checkFail"].includes(
+          cmd.action,
+        ) &&
         !cmd.test
       )
         parent(db, t, true);

@@ -238,3 +238,54 @@ export interface AcceptanceRecord extends AcceptanceInput {
   recordedSeq: number;
   snapshot: Record<string, unknown>;
 }
+
+export type ContributionType =
+  | "development"
+  | "repair"
+  | "testing"
+  | "coordination";
+export interface UpdateInput {
+  target: Ref;
+  workDate: LocalDate;
+  done: string;
+  next?: string;
+  obstacle?: string;
+  contributionType: ContributionType;
+  correctsId?: Id;
+  reason?: string;
+}
+export interface ObjectSnapshot {
+  id: Id;
+  requirementId: Id | null;
+  title: string;
+  projectId: Id;
+  projectName: string | null;
+  ownerId: Id | null;
+  ownerName: string | null;
+  state: string;
+  revision: number | null;
+  blocked: boolean;
+  version: number;
+}
+export interface WorkUpdate extends UpdateInput {
+  id: Id;
+  logicalId: Id;
+  version: number;
+  authorId: Id;
+  authorName: string;
+  recordedAt: Instant;
+  recordedSeq: number;
+  originalSeq: number;
+  lateEntry: boolean;
+  snapshot: ObjectSnapshot;
+}
+export interface HistoryEntry extends Event {
+  actorName: string | null;
+  localTime: string;
+  reason: string | null;
+}
+export interface SeqPage<T> {
+  items: T[];
+  cutoffSeq: number;
+  nextAfterSeq: number | null;
+}
