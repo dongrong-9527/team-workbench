@@ -7,9 +7,9 @@ CREATE TABLE requirement_revisions (
 CREATE TRIGGER revisions_no_update BEFORE UPDATE ON requirement_revisions BEGIN SELECT RAISE(ABORT,'revisions are immutable'); END;
 CREATE TRIGGER revisions_no_delete BEFORE DELETE ON requirement_revisions BEGIN SELECT RAISE(ABORT,'revisions are immutable'); END;
 CREATE TABLE execution_participations (
- object_id TEXT NOT NULL REFERENCES objects(id), project_id TEXT NOT NULL REFERENCES projects(id), member_id TEXT NOT NULL REFERENCES members(id),
+ id TEXT PRIMARY KEY, object_id TEXT NOT NULL REFERENCES objects(id), project_id TEXT NOT NULL REFERENCES projects(id), member_id TEXT NOT NULL REFERENCES members(id),
  requirement_id TEXT REFERENCES objects(id), role TEXT NOT NULL CHECK(role IN ('frontend','backend','test')), activity TEXT NOT NULL CHECK(activity IN ('development','repair')), recorded_at TEXT NOT NULL,
- PRIMARY KEY(object_id,member_id,role), FOREIGN KEY(project_id,object_id) REFERENCES objects(project_id,id)
+ FOREIGN KEY(project_id,object_id) REFERENCES objects(project_id,id)
 );
 CREATE TRIGGER participation_no_update BEFORE UPDATE ON execution_participations BEGIN SELECT RAISE(ABORT,'participation is immutable'); END;
 CREATE TRIGGER participation_no_delete BEFORE DELETE ON execution_participations BEGIN SELECT RAISE(ABORT,'participation is immutable'); END;

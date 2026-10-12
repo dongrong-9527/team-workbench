@@ -21,7 +21,8 @@ export function getRequirement(db: Database, id: string): Requirement {
   };
 }
 export function linkedTasks(db: Database, id: string): any[] {
-  return (
+  const requirement = getRequirement(db, id);
+  const tasks = (
     db
       .prepare(
         "SELECT * FROM objects WHERE kind='task' AND json_extract(current,'$.requirementId')=?",
@@ -33,6 +34,9 @@ export function linkedTasks(db: Database, id: string): any[] {
     projectId: o.project_id,
     version: o.version,
   }));
+  if (tasks.some((t) => t.projectId !== requirement.projectId))
+    throw new DomainError(422, "Linked task belongs to a different project");
+  return tasks;
 }
 // Coordinated domain services call this only inside their existing mutation.
 export function writeDomainObject(
@@ -102,6 +106,7 @@ function authorize(
   action: string,
   projectId?: string,
   creationRole?: string,
+  commandFields: Record<string, unknown> = {},
 ) {
   const base = ctx.authorize;
   return {
@@ -123,6 +128,15 @@ function authorize(
           "SELECT role,lead FROM roles WHERE project_id=? AND member_id=?",
         )
         .all(p, ctx.actorId) as any[];
+      const product = roles.some((x) => x.role === "product");
+      if (
+        !product &&
+        ("acceptorId" in commandFields || (r && "role" in commandFields))
+      )
+        throw new DomainError(
+          403,
+          "Product role required to designate acceptor or transfer scope",
+        );
       const allowed =
         action === "suggestChange"
           ? roles.length > 0
@@ -147,12 +161,22 @@ export function createRequirement(
     | "blocked"
     | "evidenceReady"
     | "scopeConfirmed"
-  >,
+    | "acceptorId"
+  > & { acceptorId?: string },
 ): Requirement {
-  const auth = authorize(db, ctx, "", "create", input.projectId, input.role);
+  const auth = authorize(
+    db,
+    ctx,
+    "",
+    "create",
+    input.projectId,
+    input.role,
+    input,
+  );
   return mutate(db, auth, () => {
     const r: Requirement = {
       ...input,
+      acceptorId: input.acceptorId ?? "",
       id: randomUUID(),
       state: "draft",
       version: 1,
@@ -206,7 +230,8 @@ export function changeRequirement(
   id: string,
   cmd: RequirementCommand,
 ): Requirement {
-  return mutate(db, authorize(db, ctx, id, cmd.action), () => {
+  const auth = authorize(db, ctx, id, cmd.action, undefined, undefined, cmd);
+  return mutate(db, auth, () => {
     let r = getRequirement(db, id);
     if (ctx.expectedVersion === undefined)
       throw new DomainError(400, "expectedVersion is required");
@@ -282,8 +307,8 @@ export function changeRequirement(
         linkedTasks(db, id).some(
           (t) =>
             !["cancelled", "done"].includes(t.state) &&
-            (!Array.isArray(t.completionCriteria) ||
-              !t.completionCriteria.length),
+            (typeof t.definitionOfDone !== "string" ||
+              !t.definitionOfDone.trim()),
         )
       )
         throw new DomainError(422, "Task completion criteria required");

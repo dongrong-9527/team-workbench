@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Database } from "better-sqlite3";
 import type { Requirement } from "../../../../packages/contracts/src/index.js";
 import { DomainError, type MutationContext } from "../db/mutate.js";
@@ -88,8 +89,9 @@ export function recordExecutionParticipation(
       "Test execution is not development participation",
     );
   db.prepare(
-    "INSERT OR IGNORE INTO execution_participations VALUES (?,?,?,?,?,?,?)",
+    "INSERT INTO execution_participations VALUES (?,?,?,?,?,?,?,?)",
   ).run(
+    randomUUID(),
     objectId,
     o.project_id,
     memberId,

@@ -114,7 +114,7 @@ it("task_04 behavior revision invalidates evidence, reopens affected work, leave
         ownerId: "dev",
         state: "done",
         version: 1,
-        completionCriteria: ["Complete"],
+        definitionOfDone: "Complete",
       }),
     );
   const result = await action(r, {
@@ -324,7 +324,7 @@ it("task_04 empty criteria and prior execution participation reject readiness", 
     .run(JSON.stringify({ id: "work", requirementId: null, state: "done" }));
   f.db
     .prepare(
-      "INSERT INTO execution_participations VALUES ('work','p1','product',?,'backend','development','2026-10-12T00:00:00.000Z')",
+      "INSERT INTO execution_participations VALUES ('seed-work','work','p1','product',?,'backend','development','2026-10-12T00:00:00.000Z')",
     )
     .run(r.id);
   expect(
@@ -553,4 +553,236 @@ it("task_04 event snapshots preserve assigned acceptor display name and responsi
     revision: 1,
     version: 1,
   });
+});
+it("task_04 review F1 lead cannot transfer scope or designate acceptor and denied writes leave no history", async () => {
+  const r = (
+    await f.api(
+      "POST",
+      "/api/requirements",
+      { ...input, role: "backend" },
+      "product",
+    )
+  ).body;
+  f.db.prepare("UPDATE roles SET lead=1 WHERE member_id='dev'").run();
+  for (const fields of [{ role: "frontend" }, { acceptorId: "admin" }]) {
+    const before = f.events("requirement", String(r.id));
+    expect(
+      (await action(r, { action: "refine", ...fields }, "dev")).status,
+    ).toBe(403);
+    expect(
+      (await f.api("GET", `/api/requirements/${r.id}`, {}, "product")).body,
+    ).toEqual(r);
+    expect(f.events("requirement", String(r.id))).toEqual(before);
+  }
+});
+it("task_04 review F1 product field policy is rechecked before cached replay", async () => {
+  const r = (
+    await f.api(
+      "POST",
+      "/api/requirements",
+      { ...input, role: "backend" },
+      "product",
+    )
+  ).body;
+  f.db
+    .prepare(
+      "INSERT INTO roles(project_id,member_id,role,lead) VALUES ('p1','dev','product',0)",
+    )
+    .run();
+  f.db
+    .prepare("UPDATE roles SET lead=1 WHERE member_id='dev' AND role='backend'")
+    .run();
+  const cmd = { action: "refine", acceptorId: "admin" };
+  expect((await action(r, cmd, "dev", "field-replay")).status).toBe(200);
+  f.db
+    .prepare("DELETE FROM roles WHERE member_id='dev' AND role='product'")
+    .run();
+  expect((await action(r, cmd, "dev", "field-replay")).status).toBe(403);
+});
+it("task_04 review F2 all coordinated effects reject malformed cross-project links atomically", async () => {
+  const r = await create();
+  f.db
+    .prepare("INSERT INTO objects VALUES ('foreign','task','p2',1,?)")
+    .run(
+      JSON.stringify({
+        requirementId: r.id,
+        state: "active",
+        definitionOfDone: "Done",
+      }),
+    );
+  const before = f.events();
+  const scopes = f.db.prepare("SELECT * FROM requirement_scopes").all();
+  expect(
+    (
+      await action(
+        r,
+        {
+          action: "cancel",
+          reason: "Stop",
+          taskDisposition: [{ taskId: "foreign", disposition: "cancel" }],
+        },
+        "product",
+        "cross-cancel",
+      )
+    ).status,
+  ).toBe(422);
+  expect(
+    (await f.api("GET", `/api/requirements/${r.id}`, {}, "dev")).body,
+  ).toEqual(r);
+  expect(
+    (
+      f.db
+        .prepare("SELECT version FROM objects WHERE id='foreign'")
+        .get() as any
+    ).version,
+  ).toBe(1);
+  expect(f.events()).toEqual(before);
+  expect(f.db.prepare("SELECT * FROM requirement_scopes").all()).toEqual(
+    scopes,
+  );
+  expect(
+    f.db
+      .prepare("SELECT 1 FROM idempotency WHERE request_id='cross-cancel'")
+      .get(),
+  ).toBeUndefined();
+  expect(
+    (
+      await action(r, {
+        action: "revise",
+        kind: "behavior",
+        reason: "Change",
+        impactConfirmed: true,
+        affectedTaskIds: [],
+        affectedCheckIds: [],
+      })
+    ).status,
+  ).toBe(422);
+  const refined = await action(r, { action: "refine" });
+  expect(
+    (
+      await action(refined.body, {
+        action: "makeReady",
+        source: {
+          description: "Source",
+          status: "unable",
+          reason: "Restricted",
+        },
+      })
+    ).status,
+  ).toBe(422);
+});
+it("task_04 review F3 appends participation occurrences across independent and changed requirement links", async () => {
+  const { recordExecutionParticipation } = await import(
+    "../apps/api/src/requirements/revisions.js"
+  );
+  const a = await create();
+  const b = await create();
+  f.db
+    .prepare("INSERT INTO objects VALUES ('work','task','p1',1,?)")
+    .run(JSON.stringify({ state: "active", requirementId: null }));
+  for (const requirementId of [null, a.id, b.id, b.id]) {
+    f.db
+      .prepare("UPDATE objects SET current=?,version=version+1 WHERE id='work'")
+      .run(JSON.stringify({ requirementId, state: "active" }));
+    f.db
+      .transaction(() =>
+        recordExecutionParticipation(f.db, "work", "product", "backend"),
+      )
+      .immediate();
+  }
+  const rows = f.db
+    .prepare("SELECT * FROM execution_participations ORDER BY rowid")
+    .all() as any[];
+  expect(rows).toHaveLength(4);
+  expect(rows.map((r) => r.requirement_id)).toEqual([null, a.id, b.id, b.id]);
+  expect(new Set(rows.map((r) => r.id)).size).toBe(4);
+  const refined = await action(b, { action: "refine" });
+  expect(
+    (
+      await action(refined.body, {
+        action: "makeReady",
+        source: {
+          description: "Source",
+          status: "unable",
+          reason: "Restricted",
+        },
+      })
+    ).status,
+  ).toBe(422);
+});
+it("task_04 approved task definitionOfDone is canonical readiness field", async () => {
+  let r = await create();
+  f.db
+    .prepare("INSERT INTO objects VALUES ('work','task','p1',1,?)")
+    .run(
+      JSON.stringify({
+        requirementId: r.id,
+        state: "ready",
+        definitionOfDone: "Validated behavior",
+      }),
+    );
+  r = (await action(r, { action: "refine" })).body;
+  expect(
+    (
+      await action(r, {
+        action: "makeReady",
+        source: {
+          description: "Source",
+          status: "unable",
+          reason: "Restricted",
+        },
+      })
+    ).status,
+  ).toBe(200);
+});
+it("task_04 lead creates scoped draft without acceptor until product designates one", async () => {
+  f.db.prepare("UPDATE roles SET lead=1 WHERE member_id='dev'").run();
+  const { acceptorId, ...draft } = input;
+  const created = await f.api(
+    "POST",
+    "/api/requirements",
+    { ...draft, role: "backend" },
+    "dev",
+  );
+  expect(created.status).toBe(200);
+  expect(created.body.acceptorId).toBe("");
+  const refined = await action(created.body, { action: "refine" }, "dev");
+  const confirmedSource = {
+    description: "Source",
+    status: "unable",
+    reason: "Restricted",
+  };
+  expect(
+    (
+      await action(
+        refined.body,
+        { action: "makeReady", source: confirmedSource },
+        "product",
+      )
+    ).status,
+  ).toBe(422);
+  const designated = await action(
+    refined.body,
+    { action: "refine", acceptorId: "product" },
+    "product",
+  );
+  expect(
+    (
+      await action(
+        designated.body,
+        { action: "makeReady", source: confirmedSource },
+        "product",
+      )
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await f.api(
+        "POST",
+        "/api/requirements",
+        { ...input, role: "backend" },
+        "dev",
+      )
+    ).status,
+  ).toBe(403);
 });

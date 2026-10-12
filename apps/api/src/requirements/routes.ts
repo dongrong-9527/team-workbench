@@ -98,16 +98,8 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
     const ctx = mutationContext(db, request);
     const b = fields(
       request.body,
-      [
-        "projectId",
-        "title",
-        "source",
-        "description",
-        "acceptorId",
-        "criteria",
-        "priority",
-      ],
-      ["role"],
+      ["projectId", "title", "source", "description", "criteria", "priority"],
+      ["role", "acceptorId"],
     );
     text(b.projectId, 1, 128);
     validate(b);
