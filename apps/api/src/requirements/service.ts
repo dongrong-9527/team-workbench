@@ -297,7 +297,7 @@ export function changeRequirement(
       requireState(r, ["refining", "active"]);
       next.source = cmd.source as Requirement["source"];
       if (
-        !next.description ||
+        !next.description.trim() ||
         !next.criteria.length ||
         !next.criteria.some((c) => c.required)
       )

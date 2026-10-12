@@ -790,3 +790,93 @@ it("task_04 lead creates scoped draft without acceptor until product designates 
     ).status,
   ).toBe(403);
 });
+it("requires substantive prose at readiness while preserving incomplete drafts and multiline content", async () => {
+  const blank = " \n\t ";
+  const created = await f.api<any>(
+    "POST",
+    "/api/requirements",
+    { ...input, description: blank },
+    "product",
+  );
+  expect(created.status).toBe(200);
+  expect(created.body).toMatchObject({
+    description: blank,
+    state: "draft",
+    scopeConfirmed: false,
+  });
+  const refined = await action(created.body, {
+    action: "refine",
+    description: blank,
+  });
+  expect(refined.status).toBe(200);
+  expect(refined.body).toMatchObject({
+    description: blank,
+    state: "refining",
+    scopeConfirmed: false,
+  });
+  const id = created.body.id;
+  const before = {
+    object: f.db.prepare("SELECT * FROM objects WHERE id=?").get(id),
+    scopes: f.db
+      .prepare(
+        "SELECT * FROM requirement_scopes WHERE requirement_id=? ORDER BY version",
+      )
+      .all(id),
+    events: f.events("requirement", id),
+    commands: f.db.prepare("SELECT * FROM idempotency").all(),
+  };
+  const source = {
+    description: "已核对来源",
+    status: "checked",
+    checkedAt: "2026-10-12T00:00:00.000Z",
+  };
+  const key = "confirm-substantive-description";
+  const rejected = await action(
+    refined.body,
+    { action: "makeReady", source },
+    "product",
+    key,
+  );
+  expect(rejected.status).toBe(422);
+  expect(f.db.prepare("SELECT * FROM objects WHERE id=?").get(id)).toEqual(
+    before.object,
+  );
+  expect(
+    f.db
+      .prepare(
+        "SELECT * FROM requirement_scopes WHERE requirement_id=? ORDER BY version",
+      )
+      .all(id),
+  ).toEqual(before.scopes);
+  expect(f.events("requirement", id)).toEqual(before.events);
+  expect(f.db.prepare("SELECT * FROM idempotency").all()).toEqual(
+    before.commands,
+  );
+  expect(
+    f.db
+      .prepare("SELECT * FROM idempotency WHERE actor_id=? AND request_id=?")
+      .get("product", key),
+  ).toBeUndefined();
+
+  const prose = "  交付输入校验\n补充边界用例\t  ";
+  const completed = await action(refined.body, {
+    action: "refine",
+    description: prose,
+  });
+  expect(completed.status).toBe(200);
+  const ready = await action(
+    completed.body,
+    { action: "makeReady", source },
+    "product",
+    key,
+  );
+  expect(ready.status).toBe(200);
+  expect(ready.body).toMatchObject({
+    description: prose,
+    state: "ready",
+    scopeConfirmed: true,
+  });
+  expect(
+    (await f.api<any>("GET", `/api/requirements/${id}`)).body.description,
+  ).toBe(prose);
+});
