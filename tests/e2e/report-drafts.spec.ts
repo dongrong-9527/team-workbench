@@ -148,9 +148,45 @@ test("task_10 restored version draft retains its expected version and stays isol
   const conflict = await save;
   expect(conflict.status()).toBe(409);
   expect(conflict.request().postDataJSON().expectedVersion).toBe(1);
+  const latest = (await conflict.json()).latest;
+  let release!: () => void;
+  let received!: () => void;
+  const held = new Promise<void>((resolve) => (received = resolve));
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/reports/${latest.id}`, async (route) => {
+    const response = await route.fetch();
+    received();
+    await gate;
+    await route.fulfill({ response });
+  });
   await page.getByRole("button", { name: "采用最新版本并重新核对" }).click();
-  await expect(page.getByLabel("日报文本")).toHaveValue("V1独立恢复文字");
+  await held;
+  try {
+    // The retained text alone cannot prove that the new version was adopted.
+    await expect(
+      page.getByRole("button", { name: "保存稿件版本", exact: true }),
+    ).toBeDisabled();
+    await expect(page.getByLabel("日报文本")).not.toBeEditable();
+    await expect(page.getByLabel("日报文本")).toHaveValue("V1独立恢复文字");
+  } finally {
+    release();
+  }
+  const adoptedSave = page.waitForResponse(
+    (r) =>
+      r.url().endsWith(`/api/reports/${latest.id}/versions`) &&
+      r.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "保存稿件版本", exact: true }).click();
+  const saved = await adoptedSave;
+  expect(saved.status()).toBe(200);
+  expect(saved.request().postDataJSON()).toEqual({
+    text: "V1独立恢复文字",
+    expectedVersion: 2,
+  });
+  expect(await saved.json()).toMatchObject({
+    text: "V1独立恢复文字",
+    version: 3,
+  });
   await expect(page.getByRole("status")).toContainText("已保存");
   await page.getByRole("button", { name: /V1 生成稿/ }).click();
   await expect(

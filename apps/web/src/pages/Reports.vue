@@ -330,6 +330,8 @@ async function copy() {
   }
 }
 async function latest() {
+  if (busy.value || !conflict.value) return;
+  busy.value = true;
   try {
     const r = await request<ReportVersion>(
       "/api/reports/" + String(conflict.value?.id),
@@ -342,6 +344,8 @@ async function latest() {
     await loadMetadata();
   } catch (e) {
     if (alive) fail(e);
+  } finally {
+    if (alive) busy.value = false;
   }
 }
 </script>
