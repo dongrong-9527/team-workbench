@@ -33,7 +33,43 @@ function owner(db: Database, b: Bug, id: unknown) {
   if (id != null && !createPolicy(db).canWrite(String(id), b.projectId, b.role))
     throw new DomainError(422, "Active functional repair owner required");
 }
-function links(db: Database, b: Bug) {
+// A retained source pair may outlive its task's current parent after authorized cancellation.
+// Only immutable server events prove that exception; creation still requires current consistency.
+function historicallyDetached(db: Database, b: Bug, t: any): boolean {
+  if (!b.requirementId || t.requirementId != null) return false;
+  const created = db
+    .prepare(
+      "SELECT seq,after_snapshot FROM events WHERE target_kind='bug' AND target_id=? AND action='created' ORDER BY seq LIMIT 1",
+    )
+    .get(b.id) as { seq: number; after_snapshot: string } | undefined;
+  if (!created) return false;
+  const source = JSON.parse(created.after_snapshot);
+  if (
+    source.projectId !== b.projectId ||
+    source.requirementId !== b.requirementId ||
+    source.taskId !== b.taskId
+  )
+    return false;
+  const detachments = db
+    .prepare(
+      "SELECT before_snapshot,after_snapshot FROM events WHERE target_kind='task' AND target_id=? AND action='requirementCancel' AND seq>? ORDER BY seq",
+    )
+    .all(t.id, created.seq) as {
+    before_snapshot: string;
+    after_snapshot: string;
+  }[];
+  return detachments.some((event) => {
+    const before = JSON.parse(event.before_snapshot),
+      after = JSON.parse(event.after_snapshot);
+    return (
+      before.projectId === b.projectId &&
+      after.projectId === b.projectId &&
+      before.requirementId === b.requirementId &&
+      after.requirementId === null
+    );
+  });
+}
+function links(db: Database, b: Bug, allowHistorical = false) {
   if (b.requirementId) {
     const r = getRequirement(db, b.requirementId);
     if (r.projectId !== b.projectId)
@@ -43,7 +79,8 @@ function links(db: Database, b: Bug) {
     const t = testTarget(db, { kind: "task", id: b.taskId });
     if (
       t.projectId !== b.projectId ||
-      (t.requirementId ?? null) !== (b.requirementId ?? null)
+      ((t.requirementId ?? null) !== (b.requirementId ?? null) &&
+        !(allowHistorical && historicallyDetached(db, b, t)))
     )
       throw new DomainError(422, "Inconsistent task and requirement links");
   }
@@ -65,7 +102,7 @@ export function authorizeBug(
     .get(b.projectId) as any;
   if (p.archived) throw new DomainError(409, "ARCHIVED");
   validScope(b);
-  links(db, b);
+  links(db, b, action !== "create");
   const roles = rs(db, b.projectId, ctx.actorId),
     product = roles.some((x) => x.role === "product"),
     test = roles.some((x) => x.role === "test"),
@@ -328,7 +365,7 @@ export function actBug(
           if (cmd.ownerId == null) {
             if (cmd.resetToReady !== true)
               throw new DomainError(422, "Unassign requires resetToReady");
-            n.state = "ready";
+            n.state = b.state === "unconfirmed" ? "unconfirmed" : "ready";
           }
           n.transfer = {
             from: b.ownerId ?? null,

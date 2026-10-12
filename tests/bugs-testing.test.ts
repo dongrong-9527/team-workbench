@@ -1316,3 +1316,235 @@ it("task_06 verifyPass honors product-excluded checks while retaining their fail
     "fail",
   );
 });
+it("task_06 review F1 cancelled task detachment preserves full Bug repair and original lineage", async () => {
+  const r = await requirement();
+  const tr = await f.api<any>(
+    "POST",
+    "/api/tasks",
+    {
+      projectId: "p1",
+      requirementId: r.id,
+      title: "Linked work",
+      kind: "backend",
+      definitionOfDone: "Done",
+      priority: "medium",
+      ownerId: "dev",
+      reviewerId: "tester",
+    },
+    "product",
+  );
+  expect(tr.status).toBe(200);
+  const t = tr.body;
+  let b = await create({ requirementId: r.id, taskId: t.id });
+  expect(
+    (
+      await f.api(
+        "POST",
+        `/api/requirements/${r.id}/actions`,
+        {
+          action: "cancel",
+          expectedVersion: r.version,
+          reason: "Stop scope",
+          taskDisposition: [{ taskId: t.id, disposition: "detach" }],
+        },
+        "product",
+      )
+    ).status,
+  ).toBe(200);
+  expect(
+    (await f.api<any>("GET", `/api/tasks/${t.id}`)).body.requirementId,
+  ).toBeNull();
+  const confirmed = await act(b, "confirm", {
+    reason: "Still a project defect",
+  });
+  expect(confirmed.status).toBe(200);
+  b = confirmed.body;
+  b = (await act(b, "claim", {}, "dev")).body;
+  b = (await act(b, "start", {}, "dev")).body;
+  b = (
+    await act(
+      b,
+      "submit",
+      {
+        evidence: {
+          fix: "First fix",
+          impact: "Input path",
+          selfCheck: "Passed",
+          environment: "local",
+          targetVersion: "build-1",
+        },
+      },
+      "dev",
+    )
+  ).body;
+  const ti = { ...testInput(b, "fail"), revision: 1 };
+  const fail = await f.api<any>(
+    "POST",
+    "/api/tests",
+    { ...ti, expectedVersion: b.version },
+    "tester",
+  );
+  expect(fail.status).toBe(200);
+  b = (await f.api<any>("GET", `/api/bugs/${b.id}`)).body;
+  expect(b.state).toBe("fixing");
+  b = (
+    await act(
+      b,
+      "submit",
+      {
+        evidence: {
+          fix: "Second fix",
+          impact: "Input path",
+          selfCheck: "Passed",
+          environment: "local",
+          targetVersion: "build-1",
+        },
+      },
+      "dev",
+    )
+  ).body;
+  const verified = await act(b, "verifyPass", {
+    test: { ...testInput(b), revision: 1 },
+  });
+  expect(verified.status).toBe(200);
+  b = verified.body;
+  expect(b.state).toBe("closed");
+  expect(b.requirementId).toBe(r.id);
+  expect(b.taskId).toBe(t.id);
+  const reopened = await act(b, "reopen", {
+    reason: "New reproduction",
+    ownerId: "dev",
+  });
+  expect(reopened.status).toBe(200);
+  expect(reopened.body.state).toBe("ready");
+  expect(
+    (await f.api<any>("GET", `/api/requirements/${r.id}`)).body.state,
+  ).toBe("cancelled");
+  expect(
+    (
+      f.db
+        .prepare(
+          "SELECT requirement_id FROM execution_participations WHERE object_id=?",
+        )
+        .all(b.id) as any[]
+    ).every((x) => x.requirement_id === r.id),
+  ).toBe(true);
+  // A new Bug cannot claim this formerly valid pair; only the existing immutable source qualifies.
+  expect(
+    (
+      await f.api(
+        "POST",
+        "/api/bugs",
+        { ...input, requirementId: r.id, taskId: t.id },
+        "tester",
+      )
+    ).status,
+  ).toBe(422);
+});
+it("task_06 review F1 unrelated detached-looking and cross-project task links remain invalid", async () => {
+  const r = await requirement();
+  const tr = await f.api<any>(
+    "POST",
+    "/api/tasks",
+    {
+      projectId: "p1",
+      title: "Independent work",
+      kind: "backend",
+      definitionOfDone: "Done",
+      priority: "medium",
+    },
+    "product",
+  );
+  expect(tr.status).toBe(200);
+  expect(
+    (
+      await f.api(
+        "POST",
+        "/api/bugs",
+        { ...input, requirementId: r.id, taskId: tr.body.id },
+        "tester",
+      )
+    ).status,
+  ).toBe(422);
+  f.db.prepare("INSERT INTO roles VALUES ('p2','product','product',0)").run();
+  const other = await f.api<any>(
+    "POST",
+    "/api/tasks",
+    {
+      projectId: "p2",
+      title: "Other project",
+      kind: "backend",
+      definitionOfDone: "Done",
+      priority: "medium",
+    },
+    "product",
+  );
+  expect(other.status).toBe(200);
+  expect(
+    (
+      await f.api(
+        "POST",
+        "/api/bugs",
+        { ...input, requirementId: r.id, taskId: other.body.id },
+        "tester",
+      )
+    ).status,
+  ).toBe(422);
+  // A corrupted same-project pair with no source/detachment events must not gain the exception.
+  const b = await create({ requirementId: r.id });
+  f.db
+    .prepare("UPDATE objects SET current=?,version=version+1 WHERE id=?")
+    .run(
+      JSON.stringify({ ...b, taskId: tr.body.id, version: b.version + 1 }),
+      b.id,
+    );
+  expect(
+    (
+      await act({ ...b, version: b.version + 1 }, "confirm", {
+        reason: "Reproduced",
+      })
+    ).status,
+  ).toBe(422);
+});
+it.each([
+  ["assign", "product"],
+  ["transfer", "product"],
+  ["assign", "dev"],
+  ["transfer", "dev"],
+] as const)(
+  "task_06 review F2 %s by %s cannot promote incomplete unconfirmed Bug through unassignment",
+  async (action, actor) => {
+    f.db
+      .prepare(
+        "UPDATE roles SET lead=1 WHERE member_id='dev' AND role='backend'",
+      )
+      .run();
+    let b = await create({
+      expected: "",
+      actual: "",
+      reproduction: "",
+      environment: "",
+    });
+    const r = await act(
+      b,
+      action,
+      {
+        ownerId: null,
+        resetToReady: true,
+        reason: "Release assignment",
+        handoff: "No repair started",
+      },
+      actor,
+    );
+    expect(r.status).toBe(200);
+    b = r.body;
+    expect(b.state).toBe("unconfirmed");
+    expect((await act(b, "claim", {}, "dev")).status).toBe(409);
+    expect(
+      (await act(b, "confirm", { reason: "No evidence" }, "dev")).status,
+    ).toBe(403);
+    expect(
+      (await act(b, "confirm", { reason: "No evidence" }, "product")).status,
+    ).toBe(422);
+  },
+);
