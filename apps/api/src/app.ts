@@ -1,3 +1,4 @@
+import { projectRoutes } from "./projects/routes.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import { DomainError } from "./db/mutate.js";
@@ -52,5 +53,6 @@ export function buildApp(
   });
   authRoutes(app, db);
   memberRoutes(app, db);
+  projectRoutes(app, db);
   return app;
 }

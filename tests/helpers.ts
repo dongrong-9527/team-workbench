@@ -49,7 +49,7 @@ export interface TestKit {
     key?: string,
   ): Promise<{ status: number; body: T }>;
   read<K extends keyof TestTables>(table: K): TestTables[K][];
-  events(kind?: Ref["kind"] | "member", id?: string): Event[];
+  events(kind?: Ref["kind"] | "member" | "project", id?: string): Event[];
   seed<K extends keyof FixtureMap>(name: K): FixtureMap[K];
   fresh(name: string): string;
   failNextEvent(): Promise<void>;
@@ -74,7 +74,7 @@ export async function createTestKit(): Promise<TestKit> {
     ["dev2", "frontend"],
     ["tester", "test"],
   ])
-    db.prepare("INSERT INTO roles VALUES (?,?,?)").run("p1", member, role);
+    db.prepare("INSERT INTO roles (project_id,member_id,role) VALUES (?,?,?)").run("p1", member, role);
   const authorize = (connection: Database) => {
     if (
       !connection
