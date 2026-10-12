@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
@@ -136,7 +137,7 @@ export async function verifyRuntime(
   }
   return { ok: failures.length === 0, failures };
 }
-if (import.meta.main) {
+if (isMain(import.meta.url)) {
   try {
     const root = resolve(process.argv[2] ?? ".");
     const result = await verifyRuntime(

@@ -136,14 +136,21 @@ test("manifest remains readable by the service account after a restrictive build
 });
 
 import { spawnSync } from "node:child_process";
-test("runtime CLI through current symlink rejects missing manifest and stays inert when imported", async () => {
+test("CLI entry detection follows current symlink and stays inert when imported", async () => {
   const dir = await mkdtemp(join(tmpdir(), "cli-current-"));
   try {
-    await symlink(process.cwd(), join(dir, "current"));
-    const script = join(dir, "current/scripts/verify-runtime.ts");
-    const direct = spawnSync(process.execPath, [script, dir], { encoding: "utf8" });
-    expect(direct.status, direct.stderr).toBe(1);
-    expect(direct.stderr).toContain("Runtime verification failed");
+    const release = join(dir, "release");
+    await mkdir(release);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(release,"probe.mjs"),
+      `import {isMain} from ${JSON.stringify(join(process.cwd(),"scripts/cli-main.ts"))};if(isMain(import.meta.url)){console.log('executed');process.exitCode=17;}`);
+    await symlink(release, join(dir, "current"));
+    const script = join(dir, "current/probe.mjs");
+    for (const path of [script,join(release,"probe.mjs")]) {
+      const direct = spawnSync(process.execPath, [path], { encoding: "utf8" });
+      expect(direct.status, direct.stderr).toBe(17);
+      expect(direct.stdout.trim()).toBe("executed");
+    }
     const imported = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(script)});console.log('imported')`], { encoding: "utf8" });
     expect(imported.status, imported.stderr).toBe(0);
     expect(imported.stdout.trim()).toBe("imported");

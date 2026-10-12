@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import Database from "better-sqlite3";
 import { isDeepStrictEqual } from "node:util";
 import { migrate } from "../apps/api/src/db/migrate.js";
@@ -194,7 +195,7 @@ export async function restoreVerify(
     db.close();
   }
 }
-if (import.meta.main) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   try {
     if (

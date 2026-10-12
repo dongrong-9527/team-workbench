@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import Database from "better-sqlite3";
 import type { Database as Connection } from "better-sqlite3";
 import { constants } from "node:fs";
@@ -142,7 +143,7 @@ export async function backup(
     if (own) db.close();
   }
 }
-if (import.meta.main) {
+if (isMain(import.meta.url)) {
   const args = process.argv.slice(2);
   try {
     if (args.length !== 2 || args[0] !== "--output")

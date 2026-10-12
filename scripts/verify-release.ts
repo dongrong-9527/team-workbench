@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import { readFile, writeFile, mkdir, open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -179,7 +180,7 @@ export async function verifyRelease(
       "PENDING target platform, off-host restore and user authorization",
   };
 }
-if (import.meta.main) {
+if (isMain(import.meta.url)) {
   try {
     if (process.argv[2] === "--record-checks")
       console.log(JSON.stringify(await recordChecks(resolve(process.argv[3]))));

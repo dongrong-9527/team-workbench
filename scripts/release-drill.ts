@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import { isDeepStrictEqual } from "node:util";
 // Isolated synthetic package/fault/recovery drill; excluded from deployment artifacts.
 import { spawn, execFileSync } from "node:child_process";
@@ -503,7 +504,7 @@ export async function releaseDrill(
     db.close();
   }
 }
-if (import.meta.main)
+if (isMain(import.meta.url))
   console.log(
     JSON.stringify(
       await releaseDrill(

@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import {
   cp,
   mkdir,
@@ -166,7 +167,7 @@ export async function packageRelease(
   await writeReleaseManifest(output, manifest);
   return manifest;
 }
-if (import.meta.main) {
+if (isMain(import.meta.url)) {
   const [source, output, dependencies, nodeBinary, version] =
     process.argv.slice(2);
   if (!source || !output || !dependencies || !nodeBinary || !version)

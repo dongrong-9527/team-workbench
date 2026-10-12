@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import { mkdir, readFile, writeFile, statfs } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -360,7 +361,7 @@ export async function runLoadScenario(
   });
   return result;
 }
-if (import.meta.main)
+if (isMain(import.meta.url))
   console.log(
     JSON.stringify(
       await runLoadScenario(

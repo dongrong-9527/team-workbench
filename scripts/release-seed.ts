@@ -1,3 +1,4 @@
+import { isMain } from "./cli-main.js";
 import { setImmediate as yieldToLoop } from "node:timers/promises";
 // Explicit synthetic-only benchmark fixture. This file is excluded from release packages.
 import { mkdir, writeFile } from "node:fs/promises";
@@ -98,7 +99,7 @@ export async function seedLoad(
     db.close();
   }
 }
-if (import.meta.main)
+if (isMain(import.meta.url))
   await seedLoad(
     resolve(process.argv[2]),
     resolve(process.argv[3]),
