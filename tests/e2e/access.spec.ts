@@ -130,11 +130,50 @@ test("task_10 admin creation activation password reset and deactivation use actu
   await p.getByLabel("确认密码").fill("Synthetic-changed-2026!");
   await p.getByRole("button", { name: "修改密码", exact: true }).click();
   await expect(p.getByRole("status")).toContainText("密码已修改");
-  await page.getByRole("button", { name: "隐藏票据" }).click();
-  await page.getByRole("button", { name: "刷新权限" }).click();
   const row = page.getByRole("row").filter({ hasText: "合成新成员" });
+  async function refreshMember() {
+    const previousRow = await row.elementHandle();
+    expect(previousRow).not.toBeNull();
+    const projectId = await page.getByLabel("授权项目").inputValue();
+    const refreshed = page.waitForResponse((r) => {
+      const url = new URL(r.url());
+      return (
+        r.request().method() === "GET" &&
+        url.pathname === "/api/members" &&
+        url.searchParams.get("projectId") === projectId
+      );
+    });
+    await page.getByRole("button", { name: "刷新权限" }).click();
+    const response = await refreshed;
+    expect(response.status()).toBe(200);
+    const member = (await response.json()).items.find(
+      (m: { displayName: string }) => m.displayName === "合成新成员",
+    );
+    expect(member).toBeDefined();
+    // The directory refresh precedes the table read. Wait for the old row to
+    // detach and the fresh row to render before opening a versioned command.
+    await expect
+      .poll(() => previousRow!.evaluate((element) => element.isConnected))
+      .toBe(false);
+    await expect(row).toBeVisible();
+    await previousRow!.dispose();
+    return member;
+  }
+  await page.getByRole("button", { name: "隐藏票据" }).click();
+  const activatedMember = await refreshMember();
   await row.getByRole("button", { name: "重置密码" }).click();
+  const resetting = page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname ===
+        `/api/members/${activatedMember.id}/reset` &&
+      r.request().method() === "POST",
+  );
   await submit(page, "确认签发密码重置票据");
+  const resetResponse = await resetting;
+  expect(resetResponse.status()).toBe(200);
+  expect(resetResponse.request().postDataJSON().expectedVersion).toBe(
+    activatedMember.version,
+  );
   const reset = await page.getByLabel("一次性票据").inputValue();
   await p.goto("/reset");
   await p.getByLabel("管理员票据").fill(reset);
@@ -144,9 +183,20 @@ test("task_10 admin creation activation password reset and deactivation use actu
   await expect(p.getByRole("status")).toContainText("设置成功");
   await login(p, "synthetic.new");
   await page.getByRole("button", { name: "隐藏票据" }).click();
-  await page.getByRole("button", { name: "刷新权限" }).click();
+  const resetMember = await refreshMember();
   await row.getByRole("button", { name: "停用", exact: true }).click();
+  const deactivating = page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname ===
+        `/api/members/${resetMember.id}/deactivate` &&
+      r.request().method() === "POST",
+  );
   await submit(page, "确认停用成员");
+  const deactivateResponse = await deactivating;
+  expect(deactivateResponse.status()).toBe(200);
+  expect(deactivateResponse.request().postDataJSON().expectedVersion).toBe(
+    resetMember.version,
+  );
   await p.reload();
   await expect(p.getByRole("button", { name: "登录工作台" })).toBeVisible();
   await expect(row.getByText("已停用", { exact: true })).toBeVisible();
