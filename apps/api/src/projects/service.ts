@@ -121,6 +121,24 @@ export function changeProject(
         .prepare("SELECT active FROM members WHERE id=?")
         .get(input.memberId) as { active: number } | undefined;
       if (!m?.active) throw new DomainError(422, "Member is inactive");
+      const current = db
+        .prepare(
+          "SELECT role,lead FROM roles WHERE project_id=? AND member_id=? ORDER BY role",
+        )
+        .all(id, input.memberId) as { role: Role; lead: number }[];
+      const requested = [...input.roles].sort().map((role) => ({
+        role,
+        lead: input.leads.includes(role) ? 1 : 0,
+      }));
+      if (
+        current.length === requested.length &&
+        current.every(
+          (row, index) =>
+            row.role === requested[index]!.role &&
+            row.lead === requested[index]!.lead,
+        )
+      )
+        return p;
       db.prepare("DELETE FROM roles WHERE project_id=? AND member_id=?").run(
         id,
         input.memberId,

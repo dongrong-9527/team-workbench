@@ -380,3 +380,28 @@ it("task_03 requires persisted valid scope for Bug and other task scoped writes"
     }),
   ).not.toThrow();
 });
+
+it("unchanged role sets preserve version and events while real changes emit once", async () => {
+  const assign = (roles: string[], leads: string[], expectedVersion: number, memberId = "dev", key = f.fresh("roles")) =>
+    f.api("PUT", "/api/projects/p1/roles", { memberId, roles, leads, expectedVersion }, "admin", key);
+  expect((await assign(["backend"], [], 1)).body).toMatchObject({ version: 1 });
+  expect(f.events("project", "p1")).toHaveLength(0);
+  expect((await assign([], [], 1, "dev2")).body).toMatchObject({ version: 2 });
+  expect((await assign([], [], 2, "dev2")).body).toMatchObject({ version: 2 });
+  expect((await assign(["backend", "test"], ["backend"], 2)).body).toMatchObject({ version: 3 });
+  expect((await assign(["test", "backend"], ["backend"], 3)).body).toMatchObject({ version: 3 });
+  expect(f.events("project", "p1")).toHaveLength(2);
+  expect((await assign(["backend", "test"], ["test"], 3)).body).toMatchObject({ version: 4 });
+  expect(f.events("project", "p1")).toHaveLength(3);
+  expect((await assign(["test", "backend"], ["test"], 3)).status).toBe(409);
+  const key = "noop-replay";
+  expect((await assign(["test", "backend"], ["test"], 4, "dev", key)).body).toMatchObject({ version: 4 });
+  expect((await assign(["test", "backend"], ["test"], 4, "dev", key)).status).toBe(200);
+  f.db.prepare("UPDATE members SET active=0 WHERE id='dev'").run();
+  expect((await assign(["test", "backend"], ["test"], 4)).status).toBe(422);
+  f.db.prepare("UPDATE members SET is_admin=0 WHERE id='admin'").run();
+  expect((await assign(["test", "backend"], ["test"], 4, "dev", key)).status).toBe(403);
+  f.db.prepare("UPDATE members SET is_admin=1 WHERE id='admin'").run();
+  expect((await f.api("POST", "/api/projects/p1/archive", { expectedVersion: 4 })).status).toBe(200);
+  expect((await assign(["test", "backend"], ["test"], 4, "dev", key)).status).toBe(409);
+});

@@ -38,12 +38,11 @@ export function buildApp(
       });
   });
   app.addHook("onRequest", async (request, reply) => {
-    if (request.url.startsWith("/api/"))
-      reply.header("cache-control", "no-store");
+    const apiRoute = request.routeOptions.url?.startsWith("/api/") ?? false;
+    if (apiRoute) reply.header("cache-control", "no-store");
     if (
       !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
-      (request.url.startsWith("/api/") ||
-        request.routeOptions.url === "/test/mutation")
+      (apiRoute || request.routeOptions.url === "/test/mutation")
     )
       checkOrigin(request, origin);
   });

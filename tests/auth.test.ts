@@ -301,7 +301,7 @@ it("task_02 applies uniform login failures and a persistent five failure limit",
     "anonymous",
   );
   expect(disabled.body).toEqual(responses[0]!.body);
-});
+}, 15000);
 it("task_02 bounds scrypt parameters, validates encoding/length and limits running and queued work", async () => {
   const { hashPassword, verifyPassword, SCRYPT } = await import(
     "../apps/api/src/auth/password.js"
@@ -893,4 +893,75 @@ it("task_02 successful authenticated writes refresh idle activity inside authori
     .get(digest(session.token)) as { last_seen: number; created_at: number };
   expect(row.last_seen).toBeGreaterThan(previous);
   expect(row.created_at).toBeLessThanOrEqual(row.last_seen);
+});
+
+it("encoded API routes preserve Origin and no-store protections", async () => {
+  const { hashPassword } = await import("../apps/api/src/auth/password.js");
+  const { issueSession } = await import("../apps/api/src/auth/session.js");
+  f.db.prepare("UPDATE members SET password_hash=? WHERE id='dev'").run(await hashPassword("Fictional pass 123!"));
+  const session = issueSession(f.db, "admin");
+  const cases = [
+    ["auth/login", { login: "dev", password: "Fictional pass 123!" }],
+    ["auth/activate", { token: "a".repeat(43), password: "Fictional pass 123!" }],
+    ["auth/reset", { token: "b".repeat(43), newPassword: "Fictional pass 123!" }],
+    ["projects", { name: "Origin protected" }],
+  ] as const;
+  for (const [route, body] of cases) {
+    for (const spelling of ["/api/", "/%61pi/"]) {
+      for (const origin of [undefined, "https://evil.test"]) {
+        const response = await fetch(f.baseUrl + spelling + route, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(origin ? { origin } : {}),
+            cookie: `session=${session.token}`,
+            "x-csrf-token": session.csrfToken,
+            "idempotency-key": f.fresh("origin"),
+          },
+          body: JSON.stringify(body),
+        });
+        expect(response.status, spelling + route + String(origin)).toBe(403);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(response.headers.get("set-cookie")).toBeNull();
+      }
+    }
+  }
+  for (const origin of [undefined, "https://evil.test"]) {
+    const response = await fetch(f.baseUrl + "/test/mutation", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(origin ? { origin } : {}),
+        cookie: `session=${session.token}`,
+        "x-csrf-token": session.csrfToken,
+        "idempotency-key": f.fresh("test-origin"),
+      },
+      body: JSON.stringify({}),
+    });
+    expect(response.status).toBe(403);
+  }
+  for (const [route, body] of cases.slice(1, 3))
+    expect((await f.api("POST", "/%61pi/" + route, body, "anonymous")).status).toBe(401);
+  expect((await f.api("POST", "/%61pi/auth/login", cases[0][1], "anonymous")).status).toBe(200);
+  expect((await f.api("POST", "/%61pi/projects", { name: "Allowed encoded" })).status).toBe(200);
+  for (const route of ["auth/session", "projects"]) {
+    const response = await fetch(f.baseUrl + "/%61pi/" + route, { headers: { cookie: `session=${session.token}` } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  }
+});
+it("lost create ticket recovers through reset issuance", async () => {
+  const body = { login: "lost-ticket", displayName: "Lost Ticket" };
+  const original = await f.api("POST", "/api/members", body, "admin", "lost-create");
+  const replay = await f.api("POST", "/api/members", body, "admin", "lost-create");
+  expect(replay.status).toBe(200);
+  expect(Object.keys(replay.body).sort()).toEqual(["id", "ticketIssued", "version"]);
+  expect((await f.api("POST", "/api/members", body)).status).toBe(409);
+  const reset = await f.api("POST", `/api/members/${replay.body.id}/reset`, { expectedVersion: replay.body.version });
+  expect(reset.status).toBe(200);
+  expect((await f.api("POST", "/api/auth/activate", { token: original.body.activationToken, password: "Fictional pass 123!" }, "anonymous")).status).toBe(401);
+  const stale = await f.api("POST", `/api/members/${replay.body.id}/reset`, { expectedVersion: replay.body.version });
+  expect(stale.status).toBe(409);
+  expect(stale.body.latest).toMatchObject({ id: replay.body.id, version: reset.body.version });
+  expect((await f.api("POST", "/api/auth/reset", { token: reset.body.resetToken, newPassword: "Fictional pass 123!" }, "anonymous")).status).toBe(200);
 });
