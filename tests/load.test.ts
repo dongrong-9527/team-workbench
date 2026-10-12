@@ -42,3 +42,24 @@ test("release refuses short, unbounded, missing or failing measured load", () =>
     }),
   ).not.toEqual([]);
 });
+
+import Database from "better-sqlite3";
+import { reconcileAcknowledgedWrites } from "../scripts/release-drill.js";
+test("crash reconciliation checks the acknowledged object and unique matching event, beyond its receipt", () => {
+  const db = new Database(":memory:");
+  try {
+    db.exec("CREATE TABLE idempotency(actor_id,request_id,response);CREATE TABLE objects(id,current);CREATE TABLE events(target_kind,target_id,action,after_snapshot)");
+    const body = {id:"task",title:"acknowledged",version:1};
+    const row = {key:"key",body};
+    db.prepare("INSERT INTO idempotency VALUES('actor','key',?)").run(JSON.stringify(body));
+    expect(reconcileAcknowledgedWrites(db,"actor",[row]).lostWrites).toBe(1);
+    db.prepare("INSERT INTO objects VALUES('task',?)").run(JSON.stringify(body));
+    expect(reconcileAcknowledgedWrites(db,"actor",[row]).lostWrites).toBe(1);
+    db.prepare("INSERT INTO events VALUES('task','task','created',?)").run(JSON.stringify(body));
+    expect(reconcileAcknowledgedWrites(db,"actor",[row])).toEqual({lostWrites:0,duplicateEvents:0});
+    db.prepare("INSERT INTO events VALUES('task','task','created',?)").run(JSON.stringify(body));
+    expect(reconcileAcknowledgedWrites(db,"actor",[row]).duplicateEvents).toBe(1);
+    db.exec("UPDATE objects SET current='{}'");
+    expect(reconcileAcknowledgedWrites(db,"actor",[row]).lostWrites).toBe(1);
+  } finally { db.close(); }
+});

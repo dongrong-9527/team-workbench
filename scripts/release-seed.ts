@@ -3,7 +3,6 @@ import { setImmediate as yieldToLoop } from "node:timers/promises";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { pathToFileURL } from "node:url";
 import { openDb } from "../apps/api/src/db/open.js";
 import { migrate } from "../apps/api/src/db/migrate.js";
 import { createTask, actTask } from "../apps/api/src/tasks/service.js";
@@ -99,10 +98,7 @@ export async function seedLoad(
     db.close();
   }
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-)
+if (import.meta.main)
   await seedLoad(
     resolve(process.argv[2]),
     resolve(process.argv[3]),

@@ -3,7 +3,6 @@ import type { Database as Connection } from "better-sqlite3";
 import { constants } from "node:fs";
 import { open, readdir, chmod } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   safeDirectory,
   storagePath,
@@ -143,10 +142,7 @@ export async function backup(
     if (own) db.close();
   }
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   try {
     if (args.length !== 2 || args[0] !== "--output")

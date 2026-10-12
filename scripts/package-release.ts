@@ -17,7 +17,6 @@ import {
   basename,
 } from "node:path";
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
 import {
   inventory,
   manifestHash,
@@ -167,10 +166,7 @@ export async function packageRelease(
   await writeReleaseManifest(output, manifest);
   return manifest;
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+if (import.meta.main) {
   const [source, output, dependencies, nodeBinary, version] =
     process.argv.slice(2);
   if (!source || !output || !dependencies || !nodeBinary || !version)

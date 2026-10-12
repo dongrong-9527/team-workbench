@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile, statfs } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
 import { openDb } from "../apps/api/src/db/open.js";
 import { migrate } from "../apps/api/src/db/migrate.js";
@@ -361,10 +360,7 @@ export async function runLoadScenario(
   });
   return result;
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-)
+if (import.meta.main)
   console.log(
     JSON.stringify(
       await runLoadScenario(

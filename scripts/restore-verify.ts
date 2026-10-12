@@ -4,7 +4,6 @@ import { migrate } from "../apps/api/src/db/migrate.js";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join, resolve, relative, isAbsolute } from "node:path";
-import { pathToFileURL } from "node:url";
 import { copyVerified, emptyDirectory, type BackupManifest } from "./backup.js";
 import {
   safeDirectory,
@@ -195,10 +194,7 @@ export async function restoreVerify(
     db.close();
   }
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   try {
     if (

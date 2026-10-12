@@ -3,7 +3,6 @@ import { createReadStream } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 export interface ReleaseManifest {
   version: string;
   commit?: string;
@@ -137,10 +136,7 @@ export async function verifyRuntime(
   }
   return { ok: failures.length === 0, failures };
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+if (import.meta.main) {
   try {
     const root = resolve(process.argv[2] ?? ".");
     const result = await verifyRuntime(

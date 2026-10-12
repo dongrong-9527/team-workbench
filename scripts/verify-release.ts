@@ -1,7 +1,6 @@
 import { readFile, writeFile, mkdir, open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
-import { pathToFileURL } from "node:url";
 import { fileHash, verifyRuntime } from "./verify-runtime.js";
 export function loadFailures(load: any): string[] {
   const failures: string[] = [];
@@ -161,6 +160,9 @@ export async function verifyRelease(
       report.enospc !== "ENOSPC" ||
       !report.rollback?.newWritesPreserved ||
       report.crash?.lostWrites !== 0 ||
+      report.crash?.duplicateEvents !== 0 ||
+      report.crash?.acknowledgedObjectsVerified !== report.crash?.acknowledged ||
+      report.crash?.acknowledgedEventsVerified !== report.crash?.acknowledged ||
       !(report.crash?.acknowledged > 0) ||
       !(report.crash?.inFlightAtKill > 0) ||
       report.nodeVersion !== manifest.nodeVersion ||
@@ -177,10 +179,7 @@ export async function verifyRelease(
       "PENDING target platform, off-host restore and user authorization",
   };
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-) {
+if (import.meta.main) {
   try {
     if (process.argv[2] === "--record-checks")
       console.log(JSON.stringify(await recordChecks(resolve(process.argv[3]))));

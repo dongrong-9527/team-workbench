@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 // Isolated synthetic package/fault/recovery drill; excluded from deployment artifacts.
 import { spawn, execFileSync } from "node:child_process";
 import {
@@ -11,7 +12,6 @@ import {
   unlink,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import sharp from "sharp";
@@ -28,6 +28,38 @@ import {
 const requireTrue = (value: unknown, message: string) => {
   if (!value) throw Error(message);
 };
+export function reconcileAcknowledgedWrites(
+  db: Database.Database,
+  actor: string,
+  rows: { key: string; body: Record<string, unknown> }[],
+): { lostWrites: number; duplicateEvents: number } {
+  let lostWrites = 0;
+  let duplicateEvents = 0;
+  const receiptQuery = db.prepare(
+    "SELECT response FROM idempotency WHERE actor_id=? AND request_id=?",
+  );
+  const objectQuery = db.prepare("SELECT current FROM objects WHERE id=?");
+  const eventsQuery = db.prepare(
+    "SELECT after_snapshot FROM events WHERE target_kind='task' AND target_id=? AND action='created'",
+  );
+  for (const row of rows) {
+    const receipt = receiptQuery.get(actor, row.key) as { response: string } | undefined;
+    const object = objectQuery.get(row.body.id) as { current: string } | undefined;
+    const events = eventsQuery.all(row.body.id) as { after_snapshot: string }[];
+    duplicateEvents += Math.max(0, events.length - 1);
+    const snapshot = events[0] ? JSON.parse(events[0].after_snapshot) : null;
+    if (
+      !receipt || !object ||
+      !isDeepStrictEqual(JSON.parse(receipt.response), row.body) ||
+      !isDeepStrictEqual(JSON.parse(object.current), row.body) || !snapshot ||
+      !Object.entries(row.body).every(([key, value]) =>
+        isDeepStrictEqual(snapshot[key], value),
+      )
+    ) lostWrites++;
+  }
+  return { lostWrites, duplicateEvents };
+}
+
 export async function releaseDrill(
   packageRoot: string,
   directory: string,
@@ -402,19 +434,13 @@ export async function releaseDrill(
     );
     const restarted = await start(fixture.database, fixture.attachments, 39123);
     servers.push(restarted.child);
-    let crashLost = 0;
-    for (const row of acknowledged)
-      if (
-        !db
-          .prepare(
-            "SELECT 1 FROM idempotency WHERE actor_id=? AND request_id=?",
-          )
-          .get(fixture.users[0].id, row!.key)
-      )
-        crashLost++;
+    const crashReconciliation = reconcileAcknowledgedWrites(
+      db, fixture.users[0].id,
+      acknowledged as { key: string; body: Record<string, unknown> }[],
+    );
     requireTrue(
-      acknowledged.length > 0 && crashLost === 0,
-      "Acknowledged crash writes lost",
+      acknowledged.length > 0 && crashReconciliation.lostWrites === 0 && crashReconciliation.duplicateEvents === 0,
+      "Acknowledged crash object/event/receipt reconciliation failed",
     );
     requireTrue(
       db.pragma("integrity_check", { simple: true }) === "ok" &&
@@ -444,7 +470,9 @@ export async function releaseDrill(
         requested: 100,
         inFlightAtKill,
         acknowledged: acknowledged.length,
-        lostWrites: crashLost,
+        ...crashReconciliation,
+        acknowledgedObjectsVerified: acknowledged.length,
+        acknowledgedEventsVerified: acknowledged.length,
         integrity: "ok",
         foreignKeys: [],
       },
@@ -475,10 +503,7 @@ export async function releaseDrill(
     db.close();
   }
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
-)
+if (import.meta.main)
   console.log(
     JSON.stringify(
       await releaseDrill(
