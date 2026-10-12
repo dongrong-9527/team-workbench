@@ -38,3 +38,54 @@ export interface AuthorizationFields {
   participantIds?: Id[];
   creatorId?: Id;
 }
+
+export type RequirementState =
+  | "draft"
+  | "refining"
+  | "ready"
+  | "active"
+  | "pending_acceptance"
+  | "accepted"
+  | "cancelled";
+export interface RequirementSource {
+  description?: string;
+  url?: string;
+  status?: "checked" | "unable";
+  checkedAt?: Instant;
+  reason?: string;
+}
+export interface Criterion {
+  id: Id;
+  text: string;
+  required: boolean;
+}
+export interface Requirement {
+  id: Id;
+  projectId: Id;
+  title: string;
+  source: RequirementSource;
+  description: string;
+  acceptorId: Id;
+  criteria: Criterion[];
+  priority: Priority;
+  state: RequirementState;
+  revision: number;
+  version: number;
+  blocked: boolean;
+  evidenceReady: boolean;
+  scopeConfirmed: boolean;
+  affectedCheckIds?: Id[];
+  affectedTaskIds?: Id[];
+  role?: Role;
+}
+export type RequirementCommand = {
+  action:
+    | "suggestChange"
+    | "refine"
+    | "makeReady"
+    | "start"
+    | "revise"
+    | "cancel"
+    | "restore";
+  [key: string]: unknown;
+};

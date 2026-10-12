@@ -1,3 +1,4 @@
+import { requirementRoutes } from "./requirements/routes.js";
 import { projectRoutes } from "./projects/routes.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
@@ -53,5 +54,6 @@ export function buildApp(
   authRoutes(app, db);
   memberRoutes(app, db);
   projectRoutes(app, db);
+  requirementRoutes(app, db);
   return app;
 }
