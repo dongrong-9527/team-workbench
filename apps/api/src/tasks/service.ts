@@ -29,6 +29,8 @@ export function getTask(db: Database, id: string): Task {
   };
 }
 const scope = (t: Task): Role => (t.kind === "other" ? t.role : t.kind) as Role;
+const isDevelopment = (t: Task): boolean =>
+  ["frontend", "backend"].includes(scope(t));
 function roles(db: Database, p: string, a: string) {
   return db
     .prepare("SELECT role,lead FROM roles WHERE project_id=? AND member_id=?")
@@ -43,7 +45,7 @@ function validOwner(db: Database, t: Task, id: unknown) {
 }
 function validReviewer(db: Database, t: Task, id: unknown): boolean {
   if (typeof id !== "string") return false;
-  if (["frontend", "backend"].includes(t.kind))
+  if (isDevelopment(t))
     return createPolicy(db).canWrite(id, t.projectId, "test");
   return (
     createPolicy(db).canWrite(id, t.projectId, "product") ||
@@ -237,7 +239,7 @@ export function recordTaskWork(
 ): void {
   if (!db.inTransaction)
     throw new Error("Task work requires a mutation transaction");
-  const activity = ["frontend", "backend"].includes(scope(t))
+  const activity = isDevelopment(t)
     ? "development"
     : scope(t) === "test"
       ? "testing"

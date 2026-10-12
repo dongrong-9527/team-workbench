@@ -723,7 +723,7 @@ it("task_05 other-kind tasks retain explicit functional execution scope and cann
     kind: "other",
     role: "backend",
     ownerId: "dev",
-    reviewerId: "product",
+    reviewerId: "tester",
   });
   t = (await act(t, "start", {}, "dev")).body;
   expect(t.state).toBe("active");
@@ -817,3 +817,143 @@ it("task_05 explicit transfer reset of required completed work atomically regres
     "active",
   );
 });
+it.each([
+  ["backend", "dev"],
+  ["frontend", "dev2"],
+])(
+  "task_05 review F1 other/%s requires test-role reviewer across create designation submission and completion",
+  async (role, owner) => {
+    f.db
+      .prepare(
+        "UPDATE roles SET lead=1 WHERE project_id=? AND member_id=? AND role=?",
+      )
+      .run("p1", owner, role);
+    const body = { ...input, kind: "other", role, ownerId: owner };
+    for (const reviewerId of ["product", owner])
+      expect(
+        (await f.api("POST", "/api/tasks", { ...body, reviewerId }, "product"))
+          .status,
+      ).toBe(422);
+    let t = await create({ kind: "other", role, ownerId: owner });
+    for (const reviewerId of ["product", owner])
+      expect((await act(t, "designateReviewer", { reviewerId })).status).toBe(
+        422,
+      );
+    const designated = await act(t, "designateReviewer", {
+      reviewerId: "tester",
+    });
+    expect(designated.status).toBe(200);
+    t = designated.body;
+    t = (await act(t, "start", {}, owner)).body;
+    f.db
+      .prepare("DELETE FROM roles WHERE member_id='tester' AND role='test'")
+      .run();
+    expect((await act(t, "submit", { evidence }, owner)).status).toBe(422);
+    f.db.prepare("INSERT INTO roles VALUES ('p1','tester','test',0)").run();
+    const submitted = await act(t, "submit", { evidence }, owner);
+    expect(submitted.status).toBe(200);
+    t = submitted.body;
+    f.db
+      .prepare("DELETE FROM roles WHERE member_id='tester' AND role='test'")
+      .run();
+    expect(
+      (
+        await act(
+          t,
+          "checkPass",
+          { evidence: { result: "pass", environment: "build-1" } },
+          "tester",
+        )
+      ).status,
+    ).toBe(403);
+    f.db.prepare("INSERT INTO roles VALUES ('p1','tester','test',0)").run();
+    const checked = await act(
+      t,
+      "checkPass",
+      { evidence: { result: "pass", environment: "build-1" } },
+      "tester",
+    );
+    expect(checked.status).toBe(200);
+    expect(checked.body.state).toBe("done");
+    expect(
+      f.db
+        .prepare(
+          "SELECT reviewer_id,self_test FROM task_checks WHERE task_id=?",
+        )
+        .get(t.id),
+    ).toEqual({ reviewer_id: "tester", self_test: 0 });
+  },
+);
+it.each([
+  ["backend", "dev"],
+  ["frontend", "dev2"],
+])(
+  "task_05 review F1 dual-role other/%s developer may check with immutable self-test marker",
+  async (role, owner) => {
+    f.db
+      .prepare(
+        "INSERT INTO roles (project_id,member_id,role,lead) VALUES ('p1',?,'test',0)",
+      )
+      .run(owner);
+    let t = await create({
+      kind: "other",
+      role,
+      ownerId: owner,
+      reviewerId: owner,
+    });
+    t = (await act(t, "start", {}, owner)).body;
+    t = (await act(t, "submit", { evidence }, owner)).body;
+    const r = await act(
+      t,
+      "checkPass",
+      { evidence: { result: "self-test pass", environment: "build-1" } },
+      owner,
+    );
+    expect(r.status).toBe(200);
+    expect(
+      f.db
+        .prepare(
+          "SELECT reviewer_id,self_test FROM task_checks WHERE task_id=?",
+        )
+        .get(t.id),
+    ).toEqual({ reviewer_id: owner, self_test: 1 });
+  },
+);
+it.each(["product", "tester"])(
+  "task_05 review F1 other/test retains %s product or functional-lead review without development participation",
+  async (reviewer) => {
+    f.db
+      .prepare(
+        "UPDATE roles SET lead=1 WHERE member_id='tester' AND role='test'",
+      )
+      .run();
+    let t = await create({
+      kind: "other",
+      role: "test",
+      ownerId: "tester",
+      reviewerId: reviewer,
+    });
+    t = (await act(t, "start", {}, "tester")).body;
+    t = (await act(t, "submit", { evidence }, "tester")).body;
+    expect(
+      (
+        await act(
+          t,
+          "checkPass",
+          { evidence: { result: "pass", environment: "build-1" } },
+          reviewer,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      f.db
+        .prepare("SELECT * FROM execution_participations WHERE object_id=?")
+        .all(t.id),
+    ).toHaveLength(0);
+    expect(
+      f.db
+        .prepare("SELECT self_test FROM task_checks WHERE task_id=?")
+        .get(t.id),
+    ).toEqual({ self_test: 0 });
+  },
+);

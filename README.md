@@ -34,8 +34,9 @@ The other kind requires an explicit frontend/backend/test role. Tasks default to
 required; product alone may exclude one with required:false and exclusionReason.
 Empty definitionOfDone is allowed for a pending draft and must be refined before
 execution. Product or the matching functional lead creates/refines tasks, assigns
-owners and designates reviewers. Development reviewers need the test role;
-other task reviewers need product or the matching lead role.
+owners and designates reviewers. Tasks with frontend/backend functional scope,
+including explicitly scoped other tasks, require a test-role reviewer.
+Test-scoped tasks require product or the matching functional lead to review.
 
 `POST /api/tasks/:id/actions` requires the unchanged expectedVersion and an
 Idempotency-Key. Actions: claim (does not start), start, submit, checkPass,
