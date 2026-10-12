@@ -26,3 +26,30 @@ Every write requires the configured Origin. Authenticated writes also require th
 Project API: authenticated members can use `GET /api/projects` and `GET /api/projects/:id`. Administrators create projects with `POST /api/projects` (`name`, optional `description`), change roles with `PUT /api/projects/:id/roles` (`memberId`, `roles`, `leads`, `expectedVersion`), and archive or restore with `POST /api/projects/:id/archive` or `/restore` (`expectedVersion`). Roles are `product`, `frontend`, `backend`, and `test`; each lead must also hold that role. Project versions cover role and archive changes. Archived projects preserve reads and reject business writes. An administrator's identical archive retry returns its original response without another event; a new archive command on an archived project conflicts. Current session and permissions are checked before replay.
 
 Shared action policy uses the stored task `kind` as functional scope for `frontend`, `backend`, and `test`; Bug and `other` task services must persist a valid `role` scope. Missing scope denies scoped claim, execution and lead management. `ownerId` controls execution, `acceptorId` controls designated product acceptance, and `authorId`/`participantIds` identify contribution ownership/participation. `manageReport` on a project authorizes draft creation; object-level editing requires `creatorId`. Future workflow services must validate status, assignment eligibility, contribution authorship, acceptance independence and report ownership before mutation, in addition to this policy. Scope and ownership fields must be derived from stored records, never caller overrides.
+
+Task API: active members can read `GET /api/tasks` and `GET /api/tasks/:id`.
+`POST /api/tasks` accepts projectId, title, kind (frontend/backend/test/other),
+definitionOfDone and priority, plus optional requirementId, ownerId and reviewerId.
+The other kind requires an explicit frontend/backend/test role. Tasks default to
+required; product alone may exclude one with required:false and exclusionReason.
+Empty definitionOfDone is allowed for a pending draft and must be refined before
+execution. Product or the matching functional lead creates/refines tasks, assigns
+owners and designates reviewers. Development reviewers need the test role;
+other task reviewers need product or the matching lead role.
+
+`POST /api/tasks/:id/actions` requires the unchanged expectedVersion and an
+Idempotency-Key. Actions: claim (does not start), start, submit, checkPass,
+checkFail, assign, transfer, requestTransfer, reopen, cancel, block, unblock,
+setDependencies, refine, designateReviewer, setRequired and approveParallel.
+Submit evidence is `{done,selfCheck,environment}`; check evidence is
+`{result,environment}`. Assign/transfer require ownerId, reason and handoff;
+ownerId:null requires resetToPending:true. Transfer otherwise retains state.
+Executors can request transfer with reason/handoff. Block requires reason and
+assistance; unblock requires reason and retains state. Dependencies are explicit
+same-project dependencyIds; unfinished predecessors require a matching current
+functional lead's approveParallel action with reason. Approval is bound to task
+execution fields and dependency versions and expires when they change or that
+lead loses authority. setRequired requires product and a reason; exclusions keep
+that reason. Reopening required completed work regresses its requirement in the
+same transaction. Work and check evidence are immutable and preserve original
+contributors and display names; check records mark actual developer self-tests.

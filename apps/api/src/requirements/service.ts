@@ -45,6 +45,7 @@ export function writeDomainObject(
   id: string,
   after: Record<string, unknown>,
   action: string,
+  options: { unassigned?: boolean } = {},
 ): void {
   if (!db.inTransaction)
     throw new Error("Domain writes require a mutation transaction");
@@ -75,10 +76,17 @@ export function writeDomainObject(
           .prepare("SELECT name FROM members WHERE id=?")
           .get(next.ownerId ?? next.acceptorId) as any)
       : undefined;
-  db.prepare("UPDATE objects SET current=?,version=version+1 WHERE id=?").run(
-    JSON.stringify(next),
-    id,
-  );
+  const changed = options.unassigned
+    ? db
+        .prepare(
+          "UPDATE objects SET current=?,version=version+1 WHERE id=? AND version=? AND json_extract(current,'$.ownerId') IS NULL",
+        )
+        .run(JSON.stringify(next), id, o.version)
+    : db
+        .prepare("UPDATE objects SET current=?,version=version+1 WHERE id=?")
+        .run(JSON.stringify(next), id);
+  if (changed.changes !== 1)
+    throw new DomainError(409, "Claim conflict", before);
   db.prepare(
     "INSERT INTO events(time,action,actor_id,target_kind,target_id,before_snapshot,after_snapshot) VALUES(?,?,?,?,?,?,?)",
   ).run(

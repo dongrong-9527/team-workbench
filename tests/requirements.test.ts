@@ -290,6 +290,8 @@ it("task_04 rejects omitted changed checks, cross-project impact and unconfirmed
       })
     ).status,
   ).toBe(422);
+  // Deliberately bypass Task5 SQL guard to exercise corrupted legacy-row defense.
+  f.db.exec("DROP TRIGGER task_parent_insert");
   f.db
     .prepare("INSERT INTO objects VALUES ('foreign','task','p2',1,?)")
     .run(JSON.stringify({ requirementId: r.id, state: "done" }));
@@ -601,6 +603,8 @@ it("task_04 review F1 product field policy is rechecked before cached replay", a
 });
 it("task_04 review F2 all coordinated effects reject malformed cross-project links atomically", async () => {
   const r = await create();
+  // Deliberately bypass Task5 SQL guard to exercise corrupted legacy-row defense.
+  f.db.exec("DROP TRIGGER task_parent_insert");
   f.db
     .prepare("INSERT INTO objects VALUES ('foreign','task','p2',1,?)")
     .run(

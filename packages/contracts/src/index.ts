@@ -89,3 +89,44 @@ export type RequirementCommand = {
     | "restore";
   [key: string]: unknown;
 };
+
+export interface Task {
+  id: Id;
+  projectId: Id;
+  requirementId?: Id | null;
+  title: string;
+  kind: "frontend" | "backend" | "test" | "other";
+  role?: Role;
+  ownerId?: Id | null;
+  reviewerId?: Id | null;
+  definitionOfDone: string;
+  required: boolean;
+  exclusionReason?: string;
+  state: "pending" | "active" | "pending_check" | "done" | "cancelled";
+  priority: Priority;
+  blocked: boolean;
+  version: number;
+  dependencyIds: Id[];
+  [key: string]: unknown;
+}
+export type TaskCommand = {
+  action:
+    | "claim"
+    | "assign"
+    | "start"
+    | "submit"
+    | "checkPass"
+    | "checkFail"
+    | "transfer"
+    | "requestTransfer"
+    | "reopen"
+    | "cancel"
+    | "block"
+    | "unblock"
+    | "setDependencies"
+    | "approveParallel"
+    | "designateReviewer"
+    | "setRequired"
+    | "refine";
+  [key: string]: unknown;
+};

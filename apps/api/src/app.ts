@@ -1,3 +1,4 @@
+import { taskRoutes } from "./tasks/routes.js";
 import { requirementRoutes } from "./requirements/routes.js";
 import { projectRoutes } from "./projects/routes.js";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -55,5 +56,6 @@ export function buildApp(
   memberRoutes(app, db);
   projectRoutes(app, db);
   requirementRoutes(app, db);
+  taskRoutes(app, db);
   return app;
 }
