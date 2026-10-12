@@ -7,6 +7,8 @@ import {
   chmod,
   open,
   statfs,
+  rename,
+  unlink,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -67,10 +69,11 @@ export async function releaseDrill(
     packageRoot,
     "node_modules/better-sqlite3/prebuilds/linux-" + process.arch + ".node",
   );
-  const nativeOriginal = await readFile(nativePath),
+  const nativeHeld = nativePath + ".held",
     manifestOriginal = await readFile(manifestPath);
   let nativeFailureExit = 0;
   try {
+    await rename(nativePath, nativeHeld);
     await writeFile(nativePath, "invalid native ELF");
     const bad = { ...manifest, files: await inventory(packageRoot) };
     bad.sha256 = manifestHash(bad);
@@ -89,7 +92,8 @@ export async function releaseDrill(
     }
     requireTrue(nativeFailureExit === 1, "Invalid native module was accepted");
   } finally {
-    await writeFile(nativePath, nativeOriginal);
+    await unlink(nativePath);
+    await rename(nativeHeld, nativePath);
     await writeFile(manifestPath, manifestOriginal);
   }
   const fixture = await seedLoad(join(directory, "data"), manifestPath, 9);

@@ -23,6 +23,17 @@ import {
   manifestHash,
   type ReleaseManifest,
 } from "./verify-runtime.js";
+export async function writeReleaseManifest(
+  root: string,
+  manifest: ReleaseManifest,
+): Promise<void> {
+  await writeFile(
+    join(root, "release-manifest.json"),
+    JSON.stringify(manifest, null, 2),
+    { flag: "wx" },
+  );
+  await chmod(join(root, "release-manifest.json"), 0o644);
+}
 export async function packageRelease(
   source: string,
   output: string,
@@ -153,10 +164,7 @@ export async function packageRelease(
     sha256: "",
   };
   manifest.sha256 = manifestHash(manifest);
-  await writeFile(
-    join(output, "release-manifest.json"),
-    JSON.stringify(manifest, null, 2),
-  );
+  await writeReleaseManifest(output, manifest);
   return manifest;
 }
 if (

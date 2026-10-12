@@ -119,3 +119,18 @@ test("packaging resolves parent symlinks before rejecting output inside source",
     await rm(dir, { recursive: true, force: true });
   }
 });
+import { writeReleaseManifest } from "../scripts/package-release.js";
+import { stat } from "node:fs/promises";
+test("manifest remains readable by the service account after a restrictive build umask", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "manifest-mode-"));
+  const previous = process.umask(0o077);
+  try {
+    await writeReleaseManifest(dir, invalid);
+    expect((await stat(join(dir, "release-manifest.json"))).mode & 0o444).toBe(
+      0o444,
+    );
+  } finally {
+    process.umask(previous);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
