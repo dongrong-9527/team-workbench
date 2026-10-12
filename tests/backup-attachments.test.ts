@@ -981,3 +981,50 @@ test("idempotency binds file bytes and version changes during staging cannot reg
   ).rejects.toMatchObject({ statusCode: 409 });
   expect(await readdir(root())).toHaveLength(1);
 });
+
+test.each([
+  ["missing sessions table", "DROP TABLE sessions"],
+  ["missing immutable trigger", "DROP TRIGGER attachments_no_delete"],
+  ["missing migration 5", "DELETE FROM schema_migrations WHERE version=5"],
+  [
+    "no-op immutable trigger",
+    "DROP TRIGGER attachments_no_delete; CREATE TRIGGER attachments_no_delete BEFORE DELETE ON attachments BEGIN SELECT 1; END",
+  ],
+])("restore rejects unsupported schema: %s", async (_label, sql) => {
+  await service().storeAttachment(ctx(), { kind: "task", id: "t1" }, upload());
+  f.db.exec(sql);
+  const out = join(dirname(f.path), "schema-backup"),
+    scratch = join(dirname(f.path), "schema-restore");
+  // Normal backup generation; the manifest and snapshot are never forged afterward.
+  const manifest = await backup(out, { db: f.db, attachmentDirectory: root() });
+  await expect(
+    restoreVerify(join(out, "manifest.json"), scratch),
+  ).rejects.toThrow(/schema|migration/i);
+  const { hashFile } = await import("../apps/api/src/attachments/files.js");
+  expect(await hashFile(join(scratch, "database.sqlite"))).toEqual({
+    sha256: manifest.files[0]!.sha256,
+    size: manifest.files[0]!.size,
+  });
+});
+test("restore accepts the supported schema after SQLite ANALYZE and VACUUM", async () => {
+  await service().storeAttachment(ctx(), { kind: "task", id: "t1" }, upload());
+  f.db.exec("ANALYZE; VACUUM;");
+  expect(
+    f.db
+      .prepare("SELECT name FROM sqlite_schema WHERE name='sqlite_stat1'")
+      .get(),
+  ).toEqual({ name: "sqlite_stat1" });
+  const out = join(dirname(f.path), "analyzed-backup");
+  await backup(out, { db: f.db, attachmentDirectory: root() });
+  const result = await restoreVerify(
+    join(out, "manifest.json"),
+    join(dirname(f.path), "analyzed-restore"),
+  );
+  expect(result).toMatchObject({
+    integrityCheck: "ok",
+    foreignKeyCheck: [],
+    missingAttachments: [],
+    attachmentsVerified: 1,
+    objectsVerified: 1,
+  });
+});

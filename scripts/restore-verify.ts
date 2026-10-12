@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { isDeepStrictEqual } from "node:util";
+import { migrate } from "../apps/api/src/db/migrate.js";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { dirname, join, resolve, relative, isAbsolute } from "node:path";
@@ -27,6 +29,45 @@ export interface VerificationResult {
 function inside(parent: string, child: string) {
   const rel = relative(parent, child);
   return !rel || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+// Compare definitions, not just names: a same-name no-op trigger is unsupported.
+// Page locations and ANALYZE statistics are physical/planner details, not schema.
+// Keep sqlite_sequence and implicit sqlite_autoindex definitions in the comparison.
+function schema(db: Database.Database): unknown[] {
+  return db
+    .prepare(
+      `SELECT type,name,tbl_name,sql FROM main.sqlite_schema
+    WHERE name NOT IN ('sqlite_stat1','sqlite_stat2','sqlite_stat3','sqlite_stat4')
+    ORDER BY type,name,tbl_name`,
+    )
+    .all();
+}
+function requireSupportedSchema(
+  db: Database.Database,
+  schemaVersion: number,
+): void {
+  const reference = new Database(":memory:");
+  try {
+    reference.pragma("foreign_keys = ON");
+    // Only the trusted, independent reference receives packaged migrations.
+    // The restored database is opened read-only and is never repaired here.
+    migrate(reference);
+    if (!isDeepStrictEqual(schema(db), schema(reference)))
+      throw new Error("Unsupported database schema definitions");
+    const expected = reference
+      .prepare("SELECT version FROM schema_migrations ORDER BY version")
+      .all() as { version: number }[];
+    const actual = db
+      .prepare("SELECT version FROM schema_migrations ORDER BY version")
+      .all();
+    if (
+      expected.at(-1)?.version !== schemaVersion ||
+      !isDeepStrictEqual(actual, expected)
+    )
+      throw new Error("Unsupported database migration ledger");
+  } finally {
+    reference.close();
+  }
 }
 export async function restoreVerify(
   manifestPath: string,
@@ -96,20 +137,13 @@ export async function restoreVerify(
   try {
     db.pragma("trusted_schema = OFF");
     db.pragma("query_only = ON");
+    requireSupportedSchema(db, manifest.schemaVersion);
     const integrityCheck = db.pragma("integrity_check", {
         simple: true,
       }) as string,
       foreignKeyCheck = db.pragma("foreign_key_check") as unknown[];
     if (integrityCheck !== "ok" || foreignKeyCheck.length)
       throw new Error("Database consistency check failed");
-    if (
-      (
-        db.prepare("SELECT max(version) n FROM schema_migrations").get() as {
-          n: number;
-        }
-      ).n !== manifest.schemaVersion
-    )
-      throw new Error("Schema mismatch");
     const attachments = db
       .prepare("SELECT storage_key,sha256,size FROM attachments ORDER BY seq")
       .all() as { storage_key: string; sha256: string; size: number }[];
