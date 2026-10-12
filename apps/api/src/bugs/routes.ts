@@ -1,3 +1,4 @@
+import { objectsPage, parseQuery } from "../workbench/query.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import {
@@ -26,12 +27,11 @@ function validate(b: any) {
 }
 export function bugRoutes(app: FastifyInstance, db: Database) {
   app.get("/api/bugs", (request) => {
-    requireRequest(db, request);
-    return (
-      db
-        .prepare("SELECT id FROM objects WHERE kind='bug' ORDER BY id")
-        .all() as any[]
-    ).map((x) => getBug(db, x.id));
+    const actor = requireRequest(db, request);
+    const q = parseQuery(request.query);
+    if (q.kind && q.kind !== "bug")
+      throw new DomainError(400, "Conflicting kind");
+    return objectsPage(db, { ...q, kind: "bug" }, actor.id, "bugs");
   });
   app.get<{ Params: { id: string } }>("/api/bugs/:id", (request) => {
     requireRequest(db, request);

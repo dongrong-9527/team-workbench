@@ -240,10 +240,7 @@ export interface AcceptanceRecord extends AcceptanceInput {
 }
 
 export type ContributionType =
-  | "development"
-  | "repair"
-  | "testing"
-  | "coordination";
+  "development" | "repair" | "testing" | "coordination";
 export interface UpdateInput {
   target: Ref;
   workDate: LocalDate;
@@ -350,3 +347,47 @@ export interface ReportSourceChanges {
   removed: ReportSourceRef[];
   updated: ReportSourceRef[];
 }
+
+// Workbench current-state reads use query-bound creation cursors. These are not
+// immutable historical/report cutoffs; each returned business value is current.
+export interface CursorPage<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+export interface DirectoryMember {
+  id: Id;
+  displayName: string;
+  active: boolean;
+  isAdmin: boolean;
+  version: number;
+  roles?: { role: Role; lead: number }[];
+}
+export interface WorkspaceProject {
+  id: Id;
+  name: string;
+  description: string;
+  archived: number;
+  version: number;
+  myRoles: { role: Role; lead: number }[];
+}
+export type WorkbenchItem = (Requirement | Task | Bug) & {
+  objectKind: Ref["kind"];
+  projectName: string;
+  archived: number;
+  ownerName: string | null;
+  ownerActive: number | null;
+  responsibility:
+    | "owner"
+    | "reviewer"
+    | "acceptor"
+    | "participant"
+    | "tester"
+    | "claimable"
+    | "observer";
+  flags: {
+    unassigned: boolean;
+    inactiveOwner: boolean;
+    pendingRevision: boolean;
+    missingUpdate: boolean;
+  };
+};

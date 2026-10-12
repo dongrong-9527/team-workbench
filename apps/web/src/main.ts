@@ -1,2 +1,5 @@
-import {createApp,h} from 'vue';
-createApp({render:()=>h('main',[h('h1','团队协作工作台')])}).mount('#app');
+import { createApp } from "vue";
+import App from "./App.vue";
+import { router } from "./router";
+import "./styles.css";
+createApp(App).use(router).mount("#app");

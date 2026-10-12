@@ -68,7 +68,6 @@ Bug and canonical test API:
 - Task submission may add `evidence.targetVersion`; canonical `checkPass`/`checkFail` supply `test`. Tasks with an explicit checklist or submitted targetVersion reject coarse-only checks. Existing legacy submissions/check routes remain compatible and their immutable `task_checks` history is preserved; they never create canonical criterion evidence. Acceptance must use canonical coverage explicitly. No old row is rewritten or inferred as a canonical pass. The acceptance API applies the complete gate and waiver-aware reconciliation described below.
 - Bug repair under a cancelled requirement remains a project issue and preserves historical participation links. If cancellation detaches its linked task, the retained Bug source pair remains usable only when immutable prior Bug creation and server cancellation/detachment events prove that relationship; new or arbitrary mismatched pairs reject. Repair never revives the cancelled requirement. The first linked Bug start moves a ready requirement to active in the same transaction. Claim/assignment do not count as repair; successful start and submission append actual repair occurrences. Verification is an independent record, including when the repairer has test authority.
 
-
 Requirement API: active members read `GET /api/requirements`, `/api/requirements/:id` and `/api/requirements/:id/revisions`. Product or the matching functional lead creates and refines drafts; only product designates the acceptor and confirms readiness. `POST /api/requirements/:id/actions` supports suggestChange, refine, makeReady, start, revise, cancel and restore, with expectedVersion and Idempotency-Key. makeReady requires confirmed source status (checked timestamp or unable reason), a live independent product acceptor, required criteria and execution standards. Editorial revise preserves the functional revision; behavior revise requires reason, impactConfirmed, affectedTaskIds and affectedCheckIds, advances revision and invalidates affected evidence. Cancellation explicitly cancels or detaches every unfinished linked task; Bugs remain open. Restore returns to refining without restarting tasks. Immutable revisions and scope snapshots preserve prior facts.
 
 Product acceptance API (workflow backend; the Vue client remains a scaffold):
@@ -98,3 +97,41 @@ Daily report API (deterministic backend; no external AI or messaging integration
 - `GET /api/reports/:id/source-changes` returns `{changed,message,checkedAt,sourceCutoffSeq,added,removed,updated}`; reference arrays use `{kind,id,version,seq}`. A changed selection shows `有更新可重新生成`. It detects additions, corrections and updates moved into/out of the original date selection, never mutates an old draft, and ignores report-only edits. Read/query failures return errors rather than an empty report. Unknown query/body fields reject.
 - Generation captures the server time and maximum business event seq and saves its complete source snapshot, report text and idempotent response within one SQLite immediate transaction. Work updates select the latest logical version at that seq **before** filtering by workDate; all logical contributions survive, with original entry order inside stable object-ID groups. State events must satisfy both seq and actual UTC-time cutoffs. Past days end at next local midnight minus1ms; today's cutoff is generation time. Local boundaries respect DST, including 23/25-hour days. Late entries never backdate actual state transitions. Missing historical names remain null/ID display when immutable evidence cannot establish them.
 - Counts explicitly describe the **selected state operators**, not the current owners or prose authors. A same-day terminal entry (`task:done`, `bug:closed`, `requirement:accepted`) counts once per object only when its operator is selected and its cutoff state remains terminal. Same-day completion followed by reopening with a nonterminal cutoff state enters `reopenedIds` if either the completion or reopening operator was selected. A terminal entry from an earlier day does not enter that bucket. Authored contributions, test/product state operations and owner-at-cutoff blocked attention remain separate. Testing never becomes a claimed development contribution, and prose never infers completion or deployment. Missing updates show `未填写今日工作更新`; missing plans show `未填写`.
+
+## 响应式工作台与浏览器验证
+
+前端采用 Vue 3、Vue Router、Vite 和原生 fetch；没有额外 UI 框架。主导航为我的工作、项目、日报、成员管理。详情页将主负责人、检查/验收人、状态与下一步放在正文之前；测试与产品验收分别留痕。项目角色决定动作显示，所有写入继续经过真实服务端身份、CSRF、Origin、权限、版本和幂等校验。
+
+普通业务表单与日报编辑稿按当前成员 ID 保存到浏览器本地，取消、导航、断网或会话过期后可以主动恢复；不会自动重放写入。另一成员登录不会使用前一成员的草稿。密码、票据、会话与 CSRF 值只在必要的内存/安全 cookie 中使用，不存入本地草稿。未改变的提交保留一个幂等键，修改内容或明确采用冲突新版本后生成新键。冲突保留用户输入并呈现服务端最新记录。日报重生成前确认人工修改，并保存旧版本；剪贴板拒绝时仍可选中文本手动复制。
+
+### 新读取契约
+
+以下读取均要求有效成员，默认 `limit=20`、上限 100，未知或非法查询字段返回 400；数据库错误不会转为空列表。列表当前值会随业务写入变化，游标固定首次查询的创建范围并按 SQLite 行序稳定向后遍历，不承诺跨请求的业务快照；历史/日报仍使用既有不可变截止点。
+
+- `GET /api/projects` 迁移为 `{items,nextCursor}`，参数 `limit,cursor,archived=true|false`。项目项额外返回调用者的 `myRoles`。原无界数组不再保留。
+- `GET /api/requirements`、`/api/tasks`、`/api/bugs` 同样迁移为 `{items,nextCursor}`。筛选为 `projectId,ownerId,state,blocked=true|false,kind,requirementId`，`kind` 不得与路径冲突。
+- `GET /api/objects` 是上述三类的统一有界列表。`GET /api/my-work` 显示本人主责、指定检查/验收、明确开发/修复参与或已有测试记录、角色测试待办、可认领及管理范围内停用负责人的事项。`responsibility` 与主负责人字段分开；`flags` 显示未分配、停用负责人、修订影响、本人未填更新。未填提示只来自本人主责或明确参与，不将别人任务算作本人贡献。
+- `GET /api/search?q=...` 对编号或标题做字面子串搜索，支持相同筛选/分页。游标绑定调用人、接口与规范化筛选条件，不能换查询复用；每页继续传原筛选与 `nextCursor`。
+- `GET /api/projects/:id/overview` 返回 `{project,myRoles,counts,attention}`；`counts` 按对象类型和实际状态计数，`attention` 分别为阻塞与未分配，不制造完成率。
+- `GET /api/members` 返回安全显示目录 `{items,nextCursor}`，参数 `limit,cursor,active=true|false,projectId`。仅返回 `id,displayName,active,isAdmin,version`；指定项目时额外带该成员最多四项 `roles`。不返回登录名、密码散列、票据或会话数据。
+- `GET /api/tests` 保留无分页参数时的数组形状，但默认最多 20 项；传 `limit/afterSeq/cutoffSeq` 时返回既有 `SeqPage` 信封。`kind,id` 必须成对，测试结果按不可变 `recorded_seq` 排序。`GET /api/requirements/:id/acceptance` 采用相同有界兼容约定。
+- `GET /api/audit/:kind/:id` 允许 `kind=member|project`，读取安全管理事件，返回 `SeqPage`，默认 20，上限 100。所有有效成员可读，写权限不变。
+- `GET /api/requirements/:id/revision-history` 将不可变范围记录按版本分页，返回 `SeqPage`；`afterSeq/cutoffSeq` 对应范围 `version`，每项同时保留功能修订 `revision`、当时范围快照和变更原因。旧 `/revisions` 数组默认最多 20 修订/每修订 20 范围，可通过 `afterSeq`（修订号）继续；完整范围历史使用新接口。
+- 原更新、对象历史和日报仍遵循其既有 `SeqPage` 契约。浏览器通过有界页逐页读取选择目录及证据；日报版本不合并成可变“最新稿”。
+
+### 检查与本地合成环境
+
+```sh
+npm ci
+npm test
+npm run typecheck
+npm run build
+# 若本机有兼容 Chromium，可显式选用；否则使用 Playwright 安装的浏览器。
+WORKBENCH_BROWSER_EXECUTABLE=/usr/bin/chromium npm run e2e -- tests/e2e
+```
+
+`typecheck` 先以根 TypeScript 7 检查 API/契约/测试，再运行 `scripts/typecheck-web.cjs`，以精确锁定的 `typescript-sfc`（TypeScript 6.0.3 别名）驱动 vue-tsc，检查所有 Vue 脚本和模板。当前 vue-tsc 依赖 TypeScript 6 编译器内部 API；根 TypeScript 7 的 exports 不提供 `typescript/lib/tsc`，直接运行会报 `ERR_PACKAGE_PATH_NOT_EXPORTED`。保留两个编译器是临时兼容成本，升级 Vue language-tools 时应重新验证并统一，不能用忽略 SFC 诊断代替。
+
+Playwright 的 `tests/e2e/server.mjs` 在系统临时目录创建合成 SQLite 数据库和一天有效的本地 HTTPS 自签证书，运行真实业务 API 并由 Vite 同源转发。需要本机 OpenSSL。没有向生产 API 注册测试路由，也没有去掉 Secure cookie 或 CSRF/Origin 校验。测试中密码仅为本地合成数据。报告/失败上下文默认在 `/tmp/workbench-playwright-results`，可由 `WORKBENCH_TEST_OUTPUT` 改为其他私有目录；不上传包含票据或密码的 trace。CI 保持 `contents: read`，安装 Chromium 并执行相同浏览器套件，不含部署步骤。
+
+测试演示构建显式设置 `VITE_DEMO=true`，显示“云端演示数据 · 非生产部署”；普通构建不显示这一标签。该开关只影响文字展示，无认证绕过。生产静态托管仍需同源 HTTPS、SPA 回退与既定反向代理配置；当前实现和浏览器测试不代表已经部署或完成容量验证。

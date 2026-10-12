@@ -11,22 +11,26 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p apps/api/tsconfig.json && node scripts/copy-migrations.mjs && vite build apps/web",
+    "typecheck": "tsc --noEmit && node scripts/typecheck-web.cjs --noEmit -p apps/web/tsconfig.json",
+    "build": "tsc -p apps/api/tsconfig.json && node scripts/copy-migrations.mjs && vite build apps/web --config apps/web/vite.config.ts",
     "e2e": "playwright test",
     "start": "node apps/api/dist/apps/api/src/server.js"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
     "fastify": "5.12.5",
-    "vue": "3.5.43"
+    "vue": "3.5.43",
+    "vue-router": "5.4.0"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "24.19.2",
+    "@vitejs/plugin-vue": "6.0.10",
     "typescript": "7.0.2",
+    "typescript-sfc": "npm:typescript@6.0.3",
     "vite": "8.3.4",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.13"
   }
 }

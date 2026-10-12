@@ -39,19 +39,24 @@ export function saveScope(
     new Date().toISOString(),
   );
 }
-export function getRevisions(db: Database, id: string) {
+export function getRevisions(
+  db: Database,
+  id: string,
+  afterRevision = 0,
+  limit = 20,
+) {
   return (
     db
       .prepare(
-        "SELECT * FROM requirement_revisions WHERE requirement_id=? ORDER BY revision",
+        "SELECT * FROM requirement_revisions WHERE requirement_id=? AND revision>? ORDER BY revision LIMIT ?",
       )
-      .all(id) as any[]
+      .all(id, afterRevision, limit) as any[]
   ).map((r) => ({
     revision: r.revision,
     scopes: (
       db
         .prepare(
-          "SELECT * FROM requirement_scopes WHERE requirement_id=? AND revision=? ORDER BY version",
+          "SELECT * FROM requirement_scopes WHERE requirement_id=? AND revision=? ORDER BY version LIMIT 20",
         )
         .all(id, r.revision) as any[]
     ).map((s) => ({
@@ -79,8 +84,7 @@ export function recordExecutionParticipation(
   const o = db
     .prepare("SELECT current,project_id,kind FROM objects WHERE id=?")
     .get(objectId) as
-    | { current: string; project_id: string; kind: string }
-    | undefined;
+    { current: string; project_id: string; kind: string } | undefined;
   if (!o) throw new DomainError(404, "Object not found");
   const c = JSON.parse(o.current);
   if (o.kind !== "bug" && role === "test")

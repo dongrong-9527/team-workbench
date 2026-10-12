@@ -1,3 +1,4 @@
+import { evidencePage } from "../workbench/evidence.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import {
@@ -78,15 +79,26 @@ export function testingRoutes(app: FastifyInstance, db: Database) {
   });
   app.get("/api/tests", (request) => {
     requireRequest(db, request);
-    const q = request.query as any;
-    if (q.id || q.kind) {
-      if (!q.id || !["task", "requirement", "bug"].includes(q.kind))
+    const q = fields(
+      request.query,
+      [],
+      ["kind", "id", "limit", "afterSeq", "cutoffSeq"],
+    );
+    const { kind, id, ...paging } = q;
+    if (id || kind) {
+      if (!id || !["task", "requirement", "bug"].includes(String(kind)))
         throw new DomainError(400, "Invalid target");
-      const target = { kind: q.kind, id: q.id };
-      testTarget(db, target);
-      return records(db, target);
+      text(id, 1, 128);
+      testTarget(db, { kind: kind as any, id: id as string });
     }
-    return records(db);
+    const p = evidencePage(
+      db,
+      "test_records",
+      paging,
+      "(? IS NULL OR target_id=?) AND (? IS NULL OR target_kind=?)",
+      [id ?? null, id ?? null, kind ?? null, kind ?? null],
+    );
+    return Object.keys(paging).length ? p : p.items;
   });
   app.get("/api/tests/coverage", (request) => {
     requireRequest(db, request);

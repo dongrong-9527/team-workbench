@@ -1,3 +1,4 @@
+import { projectsPage, parseQuery } from "../workbench/query.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import type { Role } from "../../../../packages/contracts/src/index.js";
@@ -27,8 +28,9 @@ function roleList(value: unknown): Role[] {
 }
 export function projectRoutes(app: FastifyInstance, db: Database) {
   app.get("/api/projects", (request) => {
-    requireRequest(db, request);
-    return db.prepare("SELECT * FROM projects ORDER BY id").all();
+    const actor = requireRequest(db, request);
+    fields(request.query, [], ["limit", "cursor", "archived"]);
+    return projectsPage(db, parseQuery(request.query, ["archived"]), actor.id);
   });
   app.get<{ Params: { id: string } }>("/api/projects/:id", (request) => {
     const actor = requireRequest(db, request);

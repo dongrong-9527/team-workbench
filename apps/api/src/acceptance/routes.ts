@@ -1,3 +1,4 @@
+import { evidencePage } from "../workbench/evidence.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import {
@@ -90,6 +91,10 @@ export function acceptanceRoutes(app: FastifyInstance, db: Database) {
     requireRequest(db, request);
     const id = (request.params as any).id;
     getRequirement(db, id);
-    return acceptanceRecords(db, id);
+    const q = fields(request.query, [], ["limit", "afterSeq", "cutoffSeq"]);
+    const p = evidencePage(db, "acceptance_records", q, "requirement_id=?", [
+      id,
+    ]);
+    return Object.keys(q).length ? p : p.items;
   });
 }

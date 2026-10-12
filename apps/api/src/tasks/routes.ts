@@ -1,3 +1,4 @@
+import { objectsPage, parseQuery } from "../workbench/query.js";
 import { parseTest, validateDefinitions } from "../testing/routes.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
@@ -33,12 +34,11 @@ function validate(b: any) {
 }
 export function taskRoutes(app: FastifyInstance, db: Database) {
   app.get("/api/tasks", (request) => {
-    requireRequest(db, request);
-    return (
-      db
-        .prepare("SELECT id FROM objects WHERE kind='task' ORDER BY id")
-        .all() as any[]
-    ).map((o) => getTask(db, o.id));
+    const actor = requireRequest(db, request);
+    const q = parseQuery(request.query);
+    if (q.kind && q.kind !== "task")
+      throw new DomainError(400, "Conflicting kind");
+    return objectsPage(db, { ...q, kind: "task" }, actor.id, "tasks");
   });
   app.get<{ Params: { id: string } }>("/api/tasks/:id", (request) => {
     requireRequest(db, request);

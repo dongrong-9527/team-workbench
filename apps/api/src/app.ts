@@ -1,3 +1,4 @@
+import { workbenchRoutes } from "./workbench/routes.js";
 import { reportRoutes } from "./reports/routes.js";
 import { updateRoutes } from "./updates/routes.js";
 import { historyRoutes } from "./history/routes.js";
@@ -61,6 +62,7 @@ export function buildApp(
   authRoutes(app, db);
   memberRoutes(app, db);
   projectRoutes(app, db);
+  workbenchRoutes(app, db);
   requirementRoutes(app, db);
   taskRoutes(app, db);
   bugRoutes(app, db);

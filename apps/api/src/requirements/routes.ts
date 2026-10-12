@@ -1,3 +1,5 @@
+import { pageInput } from "../history/query.js";
+import { objectsPage, parseQuery } from "../workbench/query.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import {
@@ -75,12 +77,16 @@ function validate(b: Record<string, unknown>) {
 }
 export function requirementRoutes(app: FastifyInstance, db: Database) {
   app.get("/api/requirements", (request) => {
-    requireRequest(db, request);
-    return (
-      db
-        .prepare("SELECT id FROM objects WHERE kind='requirement' ORDER BY id")
-        .all() as { id: string }[]
-    ).map((r) => getRequirement(db, r.id));
+    const actor = requireRequest(db, request);
+    const q = parseQuery(request.query);
+    if (q.kind && q.kind !== "requirement")
+      throw new DomainError(400, "Conflicting kind");
+    return objectsPage(
+      db,
+      { ...q, kind: "requirement" },
+      actor.id,
+      "requirements",
+    );
   });
   for (const suffix of ["", "/revisions"])
     app.get<{ Params: { id: string } }>(
@@ -91,11 +97,61 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
           kind: "requirement",
           id: request.params.id,
         });
-        return suffix
-          ? getRevisions(db, request.params.id)
-          : getRequirement(db, request.params.id);
+        if (!suffix) {
+          fields(request.query, []);
+          return getRequirement(db, request.params.id);
+        }
+        const q = fields(request.query, [], ["limit", "afterSeq"]);
+        const paging = pageInput(db, { ...q, limit: q.limit ?? "20" });
+        return getRevisions(
+          db,
+          request.params.id,
+          paging.afterSeq,
+          paging.limit,
+        );
       },
     );
+  app.get<{ Params: { id: string } }>(
+    "/api/requirements/:id/revision-history",
+    (request) => {
+      requireRequest(db, request);
+      getRequirement(db, request.params.id);
+      const q = fields(request.query, [], ["limit", "afterSeq", "cutoffSeq"]);
+      const max = (
+        db
+          .prepare(
+            "SELECT COALESCE(MAX(version),0) AS n FROM requirement_scopes WHERE requirement_id=?",
+          )
+          .get(request.params.id) as any
+      ).n;
+      const p = pageInput(db, {
+        ...q,
+        limit: q.limit ?? "20",
+        cutoffSeq: q.cutoffSeq ?? String(max),
+      });
+      const rows = db
+        .prepare(
+          "SELECT s.*,r.reason,r.affected_task_ids,r.affected_check_ids FROM requirement_scopes s JOIN requirement_revisions r ON r.requirement_id=s.requirement_id AND r.revision=s.revision WHERE s.requirement_id=? AND s.version>? AND s.version<=? ORDER BY s.version LIMIT ?",
+        )
+        .all(request.params.id, p.afterSeq, p.cutoffSeq, p.limit + 1) as any[];
+      return {
+        items: rows
+          .slice(0, p.limit)
+          .map((r) => ({
+            revision: r.revision,
+            version: r.version,
+            snapshot: JSON.parse(r.snapshot),
+            actorId: r.actor_id,
+            time: r.time,
+            reason: r.reason,
+            affectedTaskIds: JSON.parse(r.affected_task_ids),
+            affectedCheckIds: JSON.parse(r.affected_check_ids),
+          })),
+        cutoffSeq: p.cutoffSeq,
+        nextAfterSeq: rows.length > p.limit ? rows[p.limit - 1].version : null,
+      };
+    },
+  );
   app.post("/api/requirements", (request) => {
     const ctx = mutationContext(db, request);
     const b = fields(
