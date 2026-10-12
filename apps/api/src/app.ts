@@ -1,3 +1,4 @@
+import { reportRoutes } from "./reports/routes.js";
 import { updateRoutes } from "./updates/routes.js";
 import { historyRoutes } from "./history/routes.js";
 import { acceptanceRoutes } from "./acceptance/routes.js";
@@ -67,5 +68,6 @@ export function buildApp(
   acceptanceRoutes(app, db);
   updateRoutes(app, db, options.clock);
   historyRoutes(app, db);
+  reportRoutes(app, db, options.clock);
   return app;
 }

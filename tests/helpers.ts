@@ -14,6 +14,7 @@ import { randomUUID, createHash } from "node:crypto";
 import type { Database } from "better-sqlite3";
 import type {
   WorkUpdate,
+  ReportInput,
   UpdateInput,
   Event,
   Ref,
@@ -55,6 +56,7 @@ export interface TestTables {
 }
 // Later modules add their real input fixtures here rather than placeholder business models.
 export interface FixtureMap {
+  historicalReport: ReportInput;
   correctionByOther: UpdateInput & { expectedVersion: number };
   ownCorrection: UpdateInput & { expectedVersion: number };
   acceptanceWithCriticalOpenBug: AcceptanceInput & { expectedVersion: number };
@@ -80,7 +82,9 @@ export interface TestKit {
   failNextEvent(): Promise<void>;
   close(): Promise<void>;
 }
-export async function createTestKit(): Promise<TestKit> {
+export async function createTestKit(
+  options: { clock?: () => Date } = {},
+): Promise<TestKit> {
   const dir = mkdtempSync(join(tmpdir(), "workbench-"));
   const path = join(dir, "test.db");
   const db = openDb(path);
@@ -124,7 +128,11 @@ export async function createTestKit(): Promise<TestKit> {
       issueSession(db, actor),
     ]),
   );
-  const app = buildApp(db, { origin: "https://workbench.test" });
+  let fixtureClock: Date | undefined;
+  const app = buildApp(db, {
+    origin: "https://workbench.test",
+    clock: () => fixtureClock ?? options.clock?.() ?? new Date(),
+  });
   app.addHook("onResponse", async () => {
     db.exec("DROP TRIGGER IF EXISTS temp.fail_event");
   });
@@ -254,6 +262,61 @@ export async function createTestKit(): Promise<TestKit> {
       }));
     },
     seed(name) {
+      if (name === "historicalReport") {
+        fixtureClock = new Date("2026-10-12T02:00:00.000Z");
+        if (!db.prepare("SELECT 1 FROM objects WHERE id='t1'").get()) {
+          const states = ["active", "done", "active"];
+          let before: Record<string, unknown> | null = null;
+          for (const [i, state] of states.entries()) {
+            const after = {
+              id: "t1",
+              projectId: "p1",
+              projectName: "Project One",
+              title: "Historical task",
+              kind: "backend",
+              ownerId: "dev",
+              ownerName: "dev",
+              state,
+              blocked: false,
+              version: i + 1,
+            };
+            if (i === 0)
+              db.prepare(
+                "INSERT INTO objects VALUES ('t1','task','p1',1,?)",
+              ).run(JSON.stringify(after));
+            else
+              db.prepare(
+                "UPDATE objects SET version=version+1,current=? WHERE id='t1'",
+              ).run(JSON.stringify(after));
+            db.prepare(
+              "INSERT INTO events(time,action,actor_id,target_kind,target_id,before_snapshot,after_snapshot) VALUES (?,?,'dev','task','t1',?,?)",
+            ).run(
+              `2026-10-11T0${i + 1}:00:00.000Z`,
+              i === 2 ? "reopen" : "fixtureState",
+              before ? JSON.stringify(before) : null,
+              JSON.stringify(after),
+            );
+            before = after;
+          }
+          saveUpdate(
+            db,
+            { ...context, actorId: "dev", requestId: "historical-update" },
+            {
+              target: { kind: "task", id: "t1" },
+              workDate: "2026-10-11",
+              done: "Checked historical behavior",
+              contributionType: "coordination",
+            },
+            () => fixtureClock!,
+          );
+        }
+        return {
+          date: "2026-10-11",
+          timeZone: "Asia/Shanghai",
+          memberIds: ["dev", "dev2"],
+          projectIds: ["p1", "p2"],
+        } as FixtureMap[typeof name];
+      }
       if (name === "ownCorrection" || name === "correctionByOther") {
         if (!correctionFixture) {
           const t = createTask(

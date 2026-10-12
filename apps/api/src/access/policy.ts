@@ -49,7 +49,12 @@ export function createPolicy(db: Database) {
         ? current.kind
         : current.role;
     const p = project(projectId);
-    if (action === "read") return;
+    // Reports are derived personal artifacts; archived business data remains readable.
+    if (
+      action === "read" ||
+      (action === "manageReport" && target.kind === "project")
+    )
+      return;
     if (p.archived) throw new DomainError(409, "ARCHIVED");
     const rs = roles(actorId, projectId),
       has = (r: unknown) => rs.some((x) => x.role === r),

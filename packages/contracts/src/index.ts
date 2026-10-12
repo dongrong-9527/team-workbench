@@ -289,3 +289,58 @@ export interface SeqPage<T> {
   cutoffSeq: number;
   nextAfterSeq: number | null;
 }
+
+export interface ReportInput {
+  date: LocalDate;
+  timeZone: string;
+  memberIds: Id[];
+  projectIds: Id[];
+  previousReportId?: Id;
+}
+export interface ReportSourceRef {
+  kind: "update" | "state" | "event" | "member" | "project";
+  id: Id;
+  version: number;
+  seq: number;
+}
+export type ReportSource =
+  | (ReportSourceRef & { kind: "update"; update: WorkUpdate })
+  | (ReportSourceRef & { kind: "state"; target: Ref; snapshot: ObjectSnapshot })
+  | (ReportSourceRef & { kind: "event"; event: HistoryEntry; projectId: Id })
+  | (ReportSourceRef & { kind: "member" | "project"; name: string | null });
+export interface ReportSources {
+  input: ReportInput;
+  entries: ReportSource[];
+  // Counts belong to selected transition operators, never inferred from owner or prose.
+  counts: {
+    tasksDone: number;
+    bugsClosed: number;
+    requirementsAccepted: number;
+  };
+  reopenedIds: Id[];
+}
+export interface ReportVersion {
+  id: Id;
+  seriesId: Id;
+  version: number;
+  creatorId: Id;
+  input: ReportInput;
+  generatedAt: Instant;
+  createdAt: Instant;
+  sourceCutoffSeq: number;
+  stateCutoff: { time: Instant; seq: number };
+  sources: ReportSourceRef[];
+  text: string;
+  edited: boolean;
+  counts: ReportSources["counts"];
+  reopenedIds: Id[];
+}
+export interface ReportSourceChanges {
+  changed: boolean;
+  message: string | null;
+  checkedAt: Instant;
+  sourceCutoffSeq: number;
+  added: ReportSourceRef[];
+  removed: ReportSourceRef[];
+  updated: ReportSourceRef[];
+}
