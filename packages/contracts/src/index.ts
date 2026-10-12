@@ -55,6 +55,7 @@ export interface RequirementSource {
   reason?: string;
 }
 export interface Criterion {
+  exclusionReason?: string;
   id: Id;
   text: string;
   required: boolean;
@@ -125,8 +126,95 @@ export type TaskCommand = {
     | "unblock"
     | "setDependencies"
     | "approveParallel"
+    | "defineChecks"
     | "designateReviewer"
     | "setRequired"
     | "refine";
+  [key: string]: unknown;
+};
+
+export interface TestCheck {
+  checkId: Id;
+  result: "pass" | "fail" | "untested";
+  note?: string;
+}
+export interface TestInput {
+  target: Ref;
+  revision?: number;
+  targetVersion: string;
+  environment: string;
+  checks: TestCheck[];
+  reusedFromId?: Id;
+  reuseReason?: string;
+  bugId?: Id;
+}
+export interface TestRecord extends TestInput {
+  id: Id;
+  projectId: Id;
+  requirementId?: Id;
+  testerId: Id;
+  recordedAt: Instant;
+  recordedSeq: number;
+  selfTest: boolean;
+  targetObjectVersion: number;
+  snapshot: JsonObject;
+}
+export interface CheckDefinition {
+  id: Id;
+  text: string;
+  required: boolean;
+  exclusionReason?: string;
+}
+export interface Bug {
+  id: Id;
+  projectId: Id;
+  title: string;
+  requirementId?: Id;
+  taskId?: Id;
+  reporterId: Id;
+  ownerId?: Id | null;
+  role: "frontend" | "backend" | "test";
+  expected: string;
+  actual: string;
+  reproduction: string;
+  environment: string;
+  severity: "blocker" | "critical" | "normal" | "minor";
+  priority: Priority;
+  state:
+    | "unconfirmed"
+    | "ready"
+    | "fixing"
+    | "pending_verify"
+    | "closed"
+    | "rejected";
+  blocked: boolean;
+  version: number;
+  reopenCount: number;
+  checks?: CheckDefinition[];
+  submission?: {
+    fix: string;
+    impact: string;
+    selfCheck: string;
+    environment: string;
+    targetVersion: string;
+  };
+  [key: string]: unknown;
+}
+export type BugCommand = {
+  action:
+    | "confirm"
+    | "reject"
+    | "claim"
+    | "start"
+    | "submit"
+    | "verifyPass"
+    | "verifyFail"
+    | "reopen"
+    | "assign"
+    | "transfer"
+    | "block"
+    | "unblock"
+    | "refine"
+    | "defineChecks";
   [key: string]: unknown;
 };

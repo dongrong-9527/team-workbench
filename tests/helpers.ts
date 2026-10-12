@@ -1,9 +1,20 @@
+import { insertTestRecord, records } from "../apps/api/src/testing/evidence.js";
+import {
+  saveRevision,
+  saveScope,
+  recordExecutionParticipation,
+} from "../apps/api/src/requirements/revisions.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import type { Database } from "better-sqlite3";
-import type { Event, Ref } from "../packages/contracts/src/index.js";
+import type {
+  Event,
+  Ref,
+  TestInput,
+  TestRecord,
+} from "../packages/contracts/src/index.js";
 import { openDb } from "../apps/api/src/db/open.js";
 import { migrate } from "../apps/api/src/db/migrate.js";
 import {
@@ -24,6 +35,7 @@ export type Actor =
   | "tester";
 export type Method = "GET" | "POST" | "PUT" | "PATCH";
 export interface TestTables {
+  test_records: TestRecord;
   test_objects: {
     id: string;
     kind: string;
@@ -34,6 +46,7 @@ export interface TestTables {
 }
 // Later modules add their real input fixtures here rather than placeholder business models.
 export interface FixtureMap {
+  failedTest: TestInput;
   core: { projectId: string; objectId: string };
 }
 export interface TestKit {
@@ -74,7 +87,9 @@ export async function createTestKit(): Promise<TestKit> {
     ["dev2", "frontend"],
     ["tester", "test"],
   ])
-    db.prepare("INSERT INTO roles (project_id,member_id,role) VALUES (?,?,?)").run("p1", member, role);
+    db.prepare(
+      "INSERT INTO roles (project_id,member_id,role) VALUES (?,?,?)",
+    ).run("p1", member, role);
   const authorize = (connection: Database) => {
     if (
       !connection
@@ -183,6 +198,8 @@ export async function createTestKit(): Promise<TestKit> {
       return { status: response.statusCode, body: response.json<T>() };
     },
     read(table) {
+      if (table === "test_records")
+        return records(db) as TestTables[typeof table][];
       if (table !== "test_objects") throw new Error("Unknown table");
       return db
         .prepare("SELECT * FROM objects ORDER BY id")
@@ -216,8 +233,88 @@ export async function createTestKit(): Promise<TestKit> {
       }));
     },
     seed(name) {
+      if (name === "failedTest") {
+        const input: TestInput = {
+          target: { kind: "bug", id: "b1" },
+          revision: 1,
+          targetVersion: "build-1",
+          environment: "local",
+          checks: [
+            { checkId: "c1", result: "fail", note: "Reproduction still fails" },
+          ],
+        };
+        db.transaction(() => {
+          const r = {
+            id: "r1",
+            projectId: "p1",
+            title: "Fixture scope",
+            description: "Validation",
+            source: { description: "Source" },
+            criteria: [{ id: "c1", text: "Validation passes", required: true }],
+            priority: "medium",
+            acceptorId: "product",
+            state: "active",
+            revision: 1,
+            version: 1,
+            blocked: false,
+            scopeConfirmed: true,
+            evidenceReady: false,
+          };
+          db.prepare(
+            "INSERT INTO objects VALUES ('r1','requirement','p1',1,?)",
+          ).run(JSON.stringify(r));
+          saveRevision(db, context, r as any, "Fixture scope");
+          saveScope(db, context, r as any);
+          const b = {
+            id: "b1",
+            projectId: "p1",
+            title: "Fixture defect",
+            requirementId: "r1",
+            reporterId: "tester",
+            ownerId: "dev",
+            role: "backend",
+            expected: "Validation passes",
+            actual: "Validation fails",
+            reproduction: "Submit input",
+            environment: "local",
+            severity: "normal",
+            priority: "medium",
+            state: "pending_verify",
+            blocked: false,
+            version: 4,
+            reopenCount: 0,
+            checks: [{ id: "c1", text: "Validation passes", required: true }],
+            submission: {
+              fix: "Validation repaired",
+              impact: "Input path",
+              selfCheck: "Local cases pass",
+              environment: "local",
+              targetVersion: "build-1",
+            },
+          };
+          db.prepare("INSERT INTO objects VALUES ('b1','bug','p1',4,?)").run(
+            JSON.stringify(b),
+          );
+          recordExecutionParticipation(db, "b1", "dev", "backend");
+          insertTestRecord(
+            db,
+            { ...context, actorId: "tester" },
+            {
+              ...input,
+              checks: [
+                {
+                  checkId: "c1",
+                  result: "pass",
+                  note: "Earlier execution passed",
+                },
+              ],
+            },
+          );
+        }).immediate();
+        return input as FixtureMap[typeof name];
+      }
       if (name !== "core") throw new Error("Unknown fixture");
-      return { projectId: "p1", objectId: "t1" };
+      return { projectId: "p1", objectId: "t1" } as FixtureMap[typeof name];
     },
     fresh(name) {
       return `${name}-${randomUUID()}`;

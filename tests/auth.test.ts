@@ -668,7 +668,7 @@ it("task_02 migration upgrades a populated task1 database without altering immut
   expect(db.prepare("SELECT * FROM events").all()).toEqual(before);
   expect(
     db.prepare("SELECT version FROM schema_migrations ORDER BY version").all(),
-  ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }]);
+  ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }]);
   expect(() => db.exec("DELETE FROM events")).toThrow();
   db.close();
 });

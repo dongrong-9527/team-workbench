@@ -145,6 +145,17 @@ function authorize(
           403,
           "Product role required to designate acceptor or transfer scope",
         );
+      if (!product && Array.isArray(commandFields.criteria)) {
+        for (const criterion of commandFields.criteria as any[]) {
+          const old = r?.criteria.find((c) => c.id === criterion.id);
+          if (
+            criterion.required === false ||
+            (old && old.required !== criterion.required) ||
+            "exclusionReason" in criterion
+          )
+            throw new DomainError(403, "Product must confirm required checks");
+        }
+      }
       const allowed =
         action === "suggestChange"
           ? roles.length > 0

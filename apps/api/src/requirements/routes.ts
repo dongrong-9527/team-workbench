@@ -62,10 +62,12 @@ function validate(b: Record<string, unknown>) {
       throw new DomainError(400, "Invalid criteria");
     const ids = new Set();
     for (const c of b.criteria) {
-      const p = fields(c, ["id", "text", "required"]);
+      const p = fields(c, ["id", "text"], ["required", "exclusionReason"]);
+      if (p.required === undefined) c.required = true;
+      if (p.required === false) text(p.exclusionReason, 1, 2000);
       text(p.id, 1, 128);
       text(p.text, 1, 2000);
-      if (typeof p.required !== "boolean" || ids.has(p.id))
+      if (typeof c.required !== "boolean" || ids.has(p.id))
         throw new DomainError(400, "Invalid criteria");
       ids.add(p.id);
     }

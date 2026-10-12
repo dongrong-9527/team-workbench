@@ -1,3 +1,4 @@
+import { parseTest, validateDefinitions } from "../testing/routes.js";
 import type { FastifyInstance } from "fastify";
 import type { Database } from "better-sqlite3";
 import {
@@ -67,8 +68,8 @@ export function taskRoutes(app: FastifyInstance, db: Database) {
     requestTransfer: ["reason", "handoff"],
     start: [],
     submit: ["evidence"],
-    checkPass: ["evidence"],
-    checkFail: ["evidence"],
+    checkPass: ["evidence", "test"],
+    checkFail: ["evidence", "test"],
     reopen: ["reason", "resetToPending"],
     cancel: ["reason"],
     block: ["reason", "assistance"],
@@ -77,6 +78,7 @@ export function taskRoutes(app: FastifyInstance, db: Database) {
     approveParallel: ["reason"],
     designateReviewer: ["reviewerId"],
     setRequired: ["required", "reason"],
+    defineChecks: ["checks"],
     refine: ["title", "definitionOfDone", "priority"],
   };
   app.post<{ Params: { id: string } }>("/api/tasks/:id/actions", (request) => {
@@ -117,12 +119,19 @@ export function taskRoutes(app: FastifyInstance, db: Database) {
         throw new DomainError(400, "Invalid dependencies");
       for (const id of b.dependencyIds) text(id, 1, 128);
     }
-    if (["submit", "checkPass", "checkFail"].includes(raw.action)) {
+    if (raw.action === "defineChecks") validateDefinitions(b.checks);
+    if (b.test) b.test = parseTest(b.test);
+    if (["submit", "checkPass", "checkFail"].includes(raw.action) && !b.test) {
       const keys =
         raw.action === "submit"
           ? ["done", "selfCheck", "environment"]
           : ["result", "environment"];
-      const e = fields(b.evidence, keys);
+      const e = fields(
+        b.evidence,
+        keys,
+        raw.action === "submit" ? ["targetVersion"] : [],
+      );
+      if (e.targetVersion !== undefined) text(e.targetVersion, 1, 200);
       for (const k of keys) text(e[k], 1, 4000);
     }
     return actTask(db, ctx, request.params.id, b as any);

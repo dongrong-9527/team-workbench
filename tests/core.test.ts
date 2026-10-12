@@ -120,7 +120,7 @@ it("enforces durable pragmas, fixed SQLite runtime, migration idempotence, immut
   ).toBe(true);
   const { migrate } = await import("../apps/api/src/db/migrate.js");
   migrate(f.db);
-  expect(f.db.prepare("SELECT * FROM schema_migrations").all()).toHaveLength(5);
+  expect(f.db.prepare("SELECT * FROM schema_migrations").all()).toHaveLength(6);
   await f.api("POST", "/test/mutation", {}, "admin");
   expect(() => f.db.exec("DELETE FROM events")).toThrow();
   expect(() => f.db.exec("UPDATE events SET action='bad'")).toThrow();
@@ -204,7 +204,7 @@ it("migration failure leaves no partial schema and succeeds after cause is remov
     ).toEqual([]);
     db.exec("DROP TABLE members");
     migrate(db);
-    expect(db.prepare("SELECT * FROM schema_migrations").all()).toHaveLength(5);
+    expect(db.prepare("SELECT * FROM schema_migrations").all()).toHaveLength(6);
   } finally {
     db.close();
   }

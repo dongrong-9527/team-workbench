@@ -1,3 +1,12 @@
+import {
+  insertTestRecord,
+  coverage,
+  reconcileTestRequirement,
+} from "../testing/evidence.js";
+import type {
+  TestInput,
+  TestRecord,
+} from "../../../../packages/contracts/src/index.js";
 import { randomUUID } from "node:crypto";
 import type { Database } from "better-sqlite3";
 import type {
@@ -69,7 +78,7 @@ function parent(db: Database, t: Task, executable = false) {
     throw new DomainError(422, "Requirement not executable");
   return r;
 }
-function auth(
+export function auth(
   db: Database,
   ctx: MutationContext,
   t: () => Task,
@@ -98,11 +107,27 @@ function auth(
         x,
         ["claim", "start", "submit", "checkPass", "checkFail"].includes(action),
       );
+      if (action === "recordTest") {
+        const r = parent(c, x);
+        if (
+          r &&
+          (!["ready", "active", "pending_acceptance", "accepted"].includes(
+            r.state,
+          ) ||
+            !r.scopeConfirmed ||
+            r.blocked)
+        )
+          throw new DomainError(422, "Requirement not executable");
+      }
       const rs = roles(c, x.projectId, ctx.actorId),
         lead = rs.some((r) => r.role === scope(x) && r.lead === 1),
         product = rs.some((r) => r.role === "product");
       let allowed = false;
-      if ("required" in cmd || action === "setRequired") {
+      if (
+        "required" in cmd ||
+        action === "setRequired" ||
+        action === "defineChecks"
+      ) {
         if (!product)
           throw new DomainError(403, "Product required for required status");
       }
@@ -110,7 +135,7 @@ function auth(
       else if (["start", "submit", "requestTransfer"].includes(action))
         allowed =
           x.ownerId === ctx.actorId && rs.some((r) => r.role === scope(x));
-      else if (["checkPass", "checkFail"].includes(action))
+      else if (["checkPass", "checkFail", "recordTest"].includes(action))
         allowed =
           x.reviewerId === ctx.actorId && validReviewer(c, x, ctx.actorId);
       else if (action === "approveParallel") allowed = lead;
@@ -123,7 +148,7 @@ function auth(
       if (!allowed) throw new DomainError(403, "Permission denied");
       if (["create", "assign", "transfer"].includes(action))
         validOwner(c, x, cmd.ownerId);
-      if (["checkPass", "checkFail"].includes(action))
+      if (["checkPass", "checkFail", "recordTest"].includes(action))
         validOwner(c, x, x.ownerId);
       if (action === "submit" && !validReviewer(c, x, x.reviewerId))
         throw new DomainError(422, "Valid reviewer required");
@@ -321,7 +346,15 @@ export function actTask(
 ): Task {
   return mutate(
     db,
-    auth(db, ctx, () => getTask(db, id), cmd.action, cmd),
+    auth(
+      db,
+      ctx,
+      () => getTask(db, id),
+      cmd.test && ["checkPass", "checkFail"].includes(cmd.action)
+        ? "recordTest"
+        : cmd.action,
+      cmd,
+    ),
     () => {
       const t = getTask(db, id);
       if (ctx.expectedVersion === undefined)
@@ -400,11 +433,23 @@ export function actTask(
           break;
         case "checkPass":
         case "checkFail":
-          state(t, ["pending_check"]);
+          state(t, cmd.test ? ["pending_check", "done"] : ["pending_check"]);
           if (t.blocked) throw new DomainError(422, "Task blocked");
           validOwner(db, t, t.ownerId);
           if (!validReviewer(db, t, t.reviewerId))
             throw new DomainError(422, "Valid reviewer required");
+          if (cmd.test) {
+            recordCanonicalTaskTest(
+              db,
+              ctx,
+              t,
+              cmd.test as TestInput,
+              cmd.action === "checkPass" ? "pass" : "fail",
+            );
+            return getTask(db, id);
+          }
+          if (t.checks || (t.submission as any)?.targetVersion)
+            throw new DomainError(422, "Canonical test evidence required");
           recordTaskCheck(
             db,
             ctx,
@@ -482,6 +527,16 @@ export function actTask(
           if (n.required && t.state !== "done")
             regressTaskRequirement(db, ctx, n);
           break;
+        case "defineChecks":
+          if (
+            !roles(db, t.projectId, ctx.actorId).some(
+              (r) => r.role === "product",
+            )
+          )
+            throw new DomainError(403, "Product required");
+          n.checks = cmd.checks;
+          regressTaskRequirement(db, ctx, t);
+          break;
         case "refine":
           state(t, ["pending"]);
           for (const k of ["title", "definitionOfDone", "priority"])
@@ -499,4 +554,62 @@ export function actTask(
       return getTask(db, id);
     },
   );
+}
+
+// Trusted transaction-only canonical adapter; callers enforce live designated reviewer, scope and version.
+export function recordCanonicalTaskTest(
+  db: Database,
+  ctx: MutationContext,
+  t: Task,
+  input: TestInput,
+  force?: "pass" | "fail",
+): TestRecord {
+  if (!db.inTransaction)
+    throw new Error("Canonical task test requires mutation transaction");
+  if (!["pending_check", "done"].includes(t.state))
+    throw new DomainError(409, "Invalid task check state", t);
+  if (t.blocked) throw new DomainError(422, "Task blocked");
+  if (input.target.kind !== "task" || input.target.id !== t.id)
+    throw new DomainError(422, "Wrong task test target");
+  if (
+    !(t.submission as any)?.targetVersion ||
+    input.targetVersion !== (t.submission as any).targetVersion
+  )
+    throw new DomainError(422, "Submitted target version required");
+  if (force === "fail" && !input.checks.some((x) => x.result === "fail"))
+    throw new DomainError(422, "Failed check required");
+  const record = insertTestRecord(db, ctx, input),
+    gate = coverage(db, input.target, input.revision, input.targetVersion);
+  if (force === "pass" && !gate.passed)
+    throw new DomainError(422, "All required checks must pass");
+  const fail =
+      force === "fail" ||
+      input.checks.some(
+        (x) =>
+          x.result === "fail" &&
+          gate.checks.some((c) => c.id === x.checkId && c.required),
+      ),
+    untested = input.checks.some((x) => x.result === "untested");
+  const next = fail
+    ? "active"
+    : gate.passed
+      ? "done"
+      : t.state === "done" && untested
+        ? "pending_check"
+        : t.state;
+  recordTaskCheck(db, ctx, t, gate.passed ? "pass" : "fail", {
+    environment: input.environment,
+    result: gate.passed ? "pass" : fail ? "fail" : "untested",
+    canonicalTestId: record.id,
+  });
+  writeDomainObject(
+    db,
+    ctx,
+    t.id,
+    { ...t, state: next, lastTestId: record.id },
+    fail ? "checkFail" : gate.passed ? "checkPass" : "testProgress",
+  );
+  if (t.required && next !== "done")
+    reconcileTestRequirement(db, ctx, t.requirementId ?? undefined);
+  return record;
 }

@@ -1,3 +1,5 @@
+import { bugRoutes } from "./bugs/routes.js";
+import { testingRoutes } from "./testing/routes.js";
 import { taskRoutes } from "./tasks/routes.js";
 import { requirementRoutes } from "./requirements/routes.js";
 import { projectRoutes } from "./projects/routes.js";
@@ -57,5 +59,7 @@ export function buildApp(
   projectRoutes(app, db);
   requirementRoutes(app, db);
   taskRoutes(app, db);
+  bugRoutes(app, db);
+  testingRoutes(app, db);
   return app;
 }
