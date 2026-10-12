@@ -16,7 +16,13 @@
     "e2e": "playwright test",
     "start": "node apps/api/dist/apps/api/src/server.js",
     "backup": "node apps/api/dist/scripts/backup.js",
-    "restore:verify": "node apps/api/dist/scripts/restore-verify.js"
+    "restore:verify": "node apps/api/dist/scripts/restore-verify.js",
+    "package:release": "node apps/api/dist/scripts/package-release.js",
+    "verify:runtime": "node apps/api/dist/scripts/verify-runtime.js",
+    "verify:release": "node apps/api/dist/scripts/verify-release.js",
+    "verify:release:checks": "node apps/api/dist/scripts/verify-release.js --record-checks",
+    "migrate:release": "node apps/api/dist/scripts/migrate-release.js",
+    "load:release": "node apps/api/dist/scripts/release-load.js"
   },
   "dependencies": {
     "@fastify/multipart": "10.1.0",

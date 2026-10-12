@@ -1,3 +1,6 @@
+import { healthRoutes } from "./health/routes.js";
+import { access, mkdir, statfs } from "node:fs/promises";
+import { constants } from "node:fs";
 import { attachmentRoutes } from "./attachments/routes.js";
 import type { AttachmentOptions } from "./attachments/service.js";
 import { workbenchRoutes } from "./workbench/routes.js";
@@ -64,6 +67,16 @@ export function buildApp(
   app.get("/health", () => {
     db.prepare("SELECT 1").get();
     return { status: "ok" };
+  });
+  const attachmentDirectory =
+    options.attachments?.directory ??
+    process.env.ATTACHMENT_PATH ??
+    "data/attachments";
+  healthRoutes(app, db, async () => {
+    await mkdir(attachmentDirectory, { recursive: true, mode: 0o700 });
+    await access(attachmentDirectory, constants.R_OK | constants.W_OK);
+    if ((await statfs(attachmentDirectory)).bavail === 0)
+      throw new Error("Storage full");
   });
   attachmentRoutes(
     app,

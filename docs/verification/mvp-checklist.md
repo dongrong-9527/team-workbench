@@ -1,0 +1,36 @@
+# MVP release evidence checklist
+
+A passing cloud gate is a candidate for target review, not production authorization. Keep actual logs, manifests, synthetic databases and screenshots in a private evidence directory outside the repository. Do not publish credential fixtures or traces. Prior HistoryList P2 remains unresolved; the Task11 malformed attachment-response regression is fixed, but its original full-run Vue warning has no proven root cause.
+
+| ID | Requirement | Required evidence / disposition |
+|---|---|---|
+| A01 | Exact runtime and native Linux artifact | Package manifest, all-file hashes, Node 24.21.0 / ABI, architecture, inspected ELF GLIBC/GLIBCXX requirements, SQLite/sharp native execution; actual target AL4 pending |
+| A02 | Authentication, session and CSRF | `auth`, `access`, `security` unit checks plus real packaged login and forbidden anonymous/admin routes |
+| A03 | Current roles and project boundaries | Access/project suites and browser role flows; revoked-role/idempotency assertions remain intact |
+| A04 | Requirement revisions and scope | Requirement, historical actor and acceptance suites; matching immutable history |
+| A05 | Task/Bug lifecycle and concurrency | Task/testing suites; package drill nine-user same-object race and same-key replay reconciliation |
+| A06 | Tests and acceptance evidence | Acceptance and bug-testing suites plus actual browser workflows |
+| A07 | Updates and reports | Update/history/report suites, paragraph/limit regressions, exact restored saved report replay |
+| A08 | Attachments | Real native decode; protected serving; quotas/type/size tests; packaged upload and byte-identical recovered image |
+| A09 | Responsive UI and browser regressions | One full Playwright run using available Chromium; preserve diagnostic limitations above |
+| A10 | Backup and isolated business recovery | Task11 complete schema validation, hashes/FK/integrity, isolated restored authenticated write; off-host encryption/receipt/decrypt/restore pending |
+| A11 | Disk-full and process failure | Actual bounded SQLite SQLITE_FULL test; nonprivileged 4 MiB tmpfs ENOSPC with no attachment row/backup success manifest; SIGKILL only of owned packaged process, acknowledged-write reconciliation and reopen integrity |
+| A12 | Resource and sustained load | Real 2 projects / >=10,000 objects / >=100,000 events, nine authenticated users for >=1800 seconds, mixed reads/writes; effective cgroup cpu.max=200000/100000 and memory.max=2 GiB, actual latency/status/lock waits/hash and RSS/cgroup peaks/disk/OOM measurements |
+| A13 | Operations and rollback | Same-origin TLS Nginx syntax, nonroot systemd syntax, read-only preflight, rotation and safe current-write-preserving rollback rehearsal; actual target installation pending |
+| A14 | Release decision | `verify:release` requires fresh hash-bound successful unit/typecheck/build/E2E + package/fault/recovery + full-load evidence from the same commit. User must separately confirm actual target, accounts, network/TLS, independent backup and trial deployment |
+
+## Full cloud run
+
+Use the official Node Linux image and resolved digest recorded by your build. The cloud reference is Debian 12/bookworm, not Alibaba Linux 4. All fixture directories must be fresh and service-owned. The benchmark client, server, SQLite and monitoring run inside one nonprivileged container (`--user 1000:1000 --cpus 2 --memory 2g --memory-swap 2g`), so measured memory includes the load driver too. Do not start builds, browser suites or another benchmark during it. Confirm `/sys/fs/cgroup/cpu.max`, `memory.max`, `memory.events`; do not substitute RSS or V8 heap flags for enforced resources.
+
+Compile with `npm run build`. The harness scripts are under `apps/api/dist/scripts`; copy that complete compiled tree into a private harness directory and resolve its dependencies to the packaged `node_modules`. The deployable package deliberately excludes fixture/load/drill scripts. Mount the package, harness and private evidence directory; `/full` is a separate `--tmpfs /full:rw,size=4m,uid=1000,gid=1000,mode=0700` used only by the fault drill. No privileged containers or host security changes are needed.
+
+Run `release-drill.js PACKAGE_ROOT FRESH_EVIDENCE_DIR /full` with the packaged Node. It starts only isolated loopback apps, verifies runtime negatives, races, actual lock contention, a read-only storage failure, real filesystem ENOSPC, backup failure, local restore and controlled process kill/restart. It emits `drill-result.json` plus SHA-256 sidecar. The ordinary `smoke.test.ts` covers actual SQLite max_page_count SQLITE_FULL atomic rollback. The earlier snapshot is never copied over the current database.
+
+Run `release-seed.js FRESH_LOAD_DIR PACKAGE_MANIFEST` to create exactly 10,000 valid tasks and 100,000 genuine domain events via the task services, with two projects and nine synthetic users. It generates random synthetic credentials locally in a private fixture file. Start the package's server with NODE_ENV=production and its explicit database/attachment paths, then record that owned child PID in the fixture. Set LOAD_FIXTURE to that JSON and run `release-load.js LOOPBACK_ORIGIN 1800`. Use a background/container process and inspect progress at most once per minute. Elapsed time comes from a monotonic clock; the fixture is counted from the actual database before load.
+
+The representative pace is one operation per user followed by 250 ms think time: 10% each task detail, history, projects, reports, session and task list, plus 40% new task writes, across both projects. It is a small-team workload, not a throughput ceiling. Login uses real scrypt before the timed steady workload; cgroup memory.peak includes that hash phase. Each successful write is reconciled against current object, idempotency response and exactly one created event. Samples record cgroup memory, process RSS and volume free space once per second. Aggregate BEGIN IMMEDIATE acquisition timing is read from the administrator-only endpoint, excluding request content. Report `status503` as failed requests/possible busy responses rather than inventing zero lock waits.
+
+Required measured thresholds: API p95 <800 ms, zero lost writes, duplicate events, request errors or OOM kills, >=300 MiB available within the container limit and >=20% free on the tested data volume. The gate refuses short runs, missing writes, wrong resources, stale evidence, hash mismatches or mismatched commit/package. Preserve `load-result.json` and its hash sidecar. Both load/drill reports must name the exact packaged manifest SHA-256.
+
+Finally run `npm run verify:release -- CHECKS_DIR PACKAGE_ROOT LOAD_JSON DRILL_JSON`. Cloud evidence expires after seven days. Files and sidecars must stay in a trusted private evidence store; this check is not a signature or remote attestation. Archive the immutable package and checksum separately. Confirm any final runtime edit invalidates the old measurements. All remaining target/off-host/authorization rows stay pending until actually executed and approved.

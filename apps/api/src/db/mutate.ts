@@ -1,5 +1,7 @@
 import type { Database } from 'better-sqlite3';
 import { isDeepStrictEqual } from 'node:util';
+const measurements = {count:0,totalLockWaitMs:0,maxLockWaitMs:0};
+export function mutationMeasurements(){return {...measurements}}
 export class DomainError extends Error {
  constructor(public statusCode:number,message:string,public latest?:unknown){super(message);}
 }
@@ -12,8 +14,10 @@ export function mutate<T>(db:Database,ctx:MutationContext,run:()=>T):T {
  if(!ctx.actorId || !ctx.requestId || !ctx.route || !ctx.bodyHash || typeof ctx.authorize!=='function') throw new DomainError(400,'Invalid mutation context');
  if(ctx.expectedVersion!==undefined && (!Number.isSafeInteger(ctx.expectedVersion)||ctx.expectedVersion<1)) throw new DomainError(400,'Invalid expectedVersion');
  if(run.constructor.name==='AsyncFunction'||ctx.authorize.constructor.name==='AsyncFunction') throw new TypeError('Mutation callbacks must be synchronous');
+ const waitingSince=performance.now();
  try {
  return db.transaction(()=>{
+  const waited=performance.now()-waitingSince;measurements.count++;measurements.totalLockWaitMs+=waited;measurements.maxLockWaitMs=Math.max(measurements.maxLockWaitMs,waited);
   const member=db.prepare('SELECT active FROM members WHERE id=?').get(ctx.actorId) as {active:number}|undefined;
   if(!member || !member.active) throw new DomainError(403,'Member is inactive');
   requireSync(ctx.authorize(db));
