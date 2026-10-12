@@ -236,7 +236,7 @@ export function recordBugTest(
     { ...b, state: next, lastTestId: record.id },
     failed ? "verifyFail" : gate.passed ? "verifyPass" : "testProgress",
   );
-  if (next !== "closed") reconcileTestRequirement(db, ctx, b.requirementId);
+  reconcileTestRequirement(db, ctx, b.requirementId);
   return record;
 }
 export function actBug(
@@ -406,8 +406,7 @@ export function actBug(
       writeDomainObject(db, ctx, id, n, cmd.action, {
         unassigned: cmd.action === "claim",
       });
-      if (!["closed", "rejected"].includes(n.state))
-        reconcileTestRequirement(db, ctx, n.requirementId);
+      reconcileTestRequirement(db, ctx, n.requirementId);
       return getBug(db, id);
     },
   );

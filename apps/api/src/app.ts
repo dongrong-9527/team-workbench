@@ -1,3 +1,5 @@
+import { acceptanceRoutes } from "./acceptance/routes.js";
+import { AcceptanceError } from "./acceptance/service.js";
 import { bugRoutes } from "./bugs/routes.js";
 import { testingRoutes } from "./testing/routes.js";
 import { taskRoutes } from "./tasks/routes.js";
@@ -29,6 +31,7 @@ export function buildApp(
         .code(error.statusCode)
         .send({
           error: error.message,
+          ...(error instanceof AcceptanceError ? { reasons: error.reasons } : {}),
           ...(error.latest !== undefined ? { latest: error.latest } : {}),
         });
     if ((error as { code?: string }).code?.startsWith("SQLITE_BUSY"))
@@ -61,5 +64,6 @@ export function buildApp(
   taskRoutes(app, db);
   bugRoutes(app, db);
   testingRoutes(app, db);
+  acceptanceRoutes(app, db);
   return app;
 }

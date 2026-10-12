@@ -1,3 +1,4 @@
+import { acceptanceRecords } from "../apps/api/src/acceptance/service.js";
 import { insertTestRecord, records } from "../apps/api/src/testing/evidence.js";
 import {
   saveRevision,
@@ -14,6 +15,8 @@ import type {
   Ref,
   TestInput,
   TestRecord,
+  AcceptanceInput,
+  AcceptanceRecord,
 } from "../packages/contracts/src/index.js";
 import { openDb } from "../apps/api/src/db/open.js";
 import { migrate } from "../apps/api/src/db/migrate.js";
@@ -35,6 +38,7 @@ export type Actor =
   | "tester";
 export type Method = "GET" | "POST" | "PUT" | "PATCH";
 export interface TestTables {
+  acceptance_records: AcceptanceRecord;
   test_records: TestRecord;
   test_objects: {
     id: string;
@@ -46,6 +50,7 @@ export interface TestTables {
 }
 // Later modules add their real input fixtures here rather than placeholder business models.
 export interface FixtureMap {
+  acceptanceWithCriticalOpenBug: AcceptanceInput & { expectedVersion: number };
   failedTest: TestInput;
   core: { projectId: string; objectId: string };
 }
@@ -198,6 +203,8 @@ export async function createTestKit(): Promise<TestKit> {
       return { status: response.statusCode, body: response.json<T>() };
     },
     read(table) {
+      if (table === "acceptance_records")
+        return acceptanceRecords(db) as TestTables[typeof table][];
       if (table === "test_records")
         return records(db) as TestTables[typeof table][];
       if (table !== "test_objects") throw new Error("Unknown table");
@@ -233,7 +240,7 @@ export async function createTestKit(): Promise<TestKit> {
       }));
     },
     seed(name) {
-      if (name === "failedTest") {
+      if (name === "failedTest" || name === "acceptanceWithCriticalOpenBug") {
         const input: TestInput = {
           target: { kind: "bug", id: "b1" },
           revision: 1,
@@ -253,7 +260,8 @@ export async function createTestKit(): Promise<TestKit> {
             criteria: [{ id: "c1", text: "Validation passes", required: true }],
             priority: "medium",
             acceptorId: "product",
-            state: "active",
+            state: name === "failedTest" ? "active" : "pending_acceptance",
+            acceptanceTargetVersion: "build-1",
             revision: 1,
             version: 1,
             blocked: false,
@@ -277,9 +285,9 @@ export async function createTestKit(): Promise<TestKit> {
             actual: "Validation fails",
             reproduction: "Submit input",
             environment: "local",
-            severity: "normal",
+            severity: name === "failedTest" ? "normal" : "critical",
             priority: "medium",
-            state: "pending_verify",
+            state: name === "failedTest" ? "pending_verify" : "ready",
             blocked: false,
             version: 4,
             reopenCount: 0,
@@ -296,6 +304,16 @@ export async function createTestKit(): Promise<TestKit> {
             JSON.stringify(b),
           );
           recordExecutionParticipation(db, "b1", "dev", "backend");
+          if (name === "acceptanceWithCriticalOpenBug")
+            insertTestRecord(
+              db,
+              { ...context, actorId: "tester" },
+              {
+                ...input,
+                target: { kind: "requirement", id: "r1" },
+                checks: [{ checkId: "c1", result: "pass" }],
+              },
+            );
           insertTestRecord(
             db,
             { ...context, actorId: "tester" },
@@ -311,6 +329,14 @@ export async function createTestKit(): Promise<TestKit> {
             },
           );
         }).immediate();
+        if (name === "acceptanceWithCriticalOpenBug")
+          return {
+            expectedVersion: 1,
+            revision: 1,
+            targetVersion: "build-1",
+            decision: "pass",
+            criteria: [{ id: "c1", passed: true }],
+          } as FixtureMap[typeof name];
         return input as FixtureMap[typeof name];
       }
       if (name !== "core") throw new Error("Unknown fixture");

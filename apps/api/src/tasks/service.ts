@@ -1,7 +1,7 @@
+import { reconcileRequirement } from "../requirements/reconcile.js";
 import {
   insertTestRecord,
   coverage,
-  reconcileTestRequirement,
 } from "../testing/evidence.js";
 import type {
   TestInput,
@@ -52,7 +52,7 @@ function validOwner(db: Database, t: Task, id: unknown) {
   )
     throw new DomainError(422, "Active functional assignee required");
 }
-function validReviewer(db: Database, t: Task, id: unknown): boolean {
+export function validReviewer(db: Database, t: Task, id: unknown): boolean {
   if (typeof id !== "string") return false;
   if (isDevelopment(t))
     return createPolicy(db).canWrite(id, t.projectId, "test");
@@ -223,6 +223,7 @@ export function createTask(
           ownerName: owner?.name ?? null,
         }),
       );
+      reconcileRequirement(db, ctx, draft.requirementId);
       return draft;
     },
   );
@@ -320,7 +321,7 @@ export function recordTaskCheck(
     new Date().toISOString(),
   );
 }
-// Task7 can reuse this transaction-only regression adapter and add gate reconciliation.
+// Compatibility adapter: evaluates persisted current state within the existing transaction.
 export function regressTaskRequirement(
   db: Database,
   ctx: MutationContext,
@@ -328,15 +329,8 @@ export function regressTaskRequirement(
 ): void {
   if (!db.inTransaction)
     throw new Error("Regression requires a mutation transaction");
-  const r = parent(db, t);
-  if (r && t.required && ["pending_acceptance", "accepted"].includes(r.state))
-    writeDomainObject(
-      db,
-      ctx,
-      r.id,
-      { ...r, state: "active", evidenceReady: false },
-      "taskRegression",
-    );
+  parent(db, t);
+  reconcileRequirement(db, ctx, t.requirementId);
 }
 export function actTask(
   db: Database,
@@ -551,6 +545,7 @@ export function actTask(
         cmd.action,
         { unassigned: cmd.action === "claim" },
       );
+      reconcileRequirement(db, ctx, n.requirementId);
       return getTask(db, id);
     },
   );
@@ -609,7 +604,6 @@ export function recordCanonicalTaskTest(
     { ...t, state: next, lastTestId: record.id },
     fail ? "checkFail" : gate.passed ? "checkPass" : "testProgress",
   );
-  if (t.required && next !== "done")
-    reconcileTestRequirement(db, ctx, t.requirementId ?? undefined);
+  reconcileRequirement(db, ctx, t.requirementId);
   return record;
 }

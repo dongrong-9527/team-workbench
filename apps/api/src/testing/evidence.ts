@@ -7,7 +7,7 @@ import type {
   CheckDefinition,
 } from "../../../../packages/contracts/src/index.js";
 import { DomainError, type MutationContext } from "../db/mutate.js";
-import { getRequirement, writeDomainObject } from "../requirements/service.js";
+import { getRequirement } from "../requirements/service.js";
 export function testTarget(db: Database, target: Ref): any {
   const row = db
     .prepare("SELECT * FROM objects WHERE id=? AND kind=?")
@@ -96,24 +96,7 @@ export function coverage(
     checks,
   };
 }
-export function reconcileTestRequirement(
-  db: Database,
-  ctx: MutationContext,
-  requirementId: string | undefined,
-): void {
-  if (!db.inTransaction)
-    throw new Error("Reconciliation requires mutation transaction");
-  if (!requirementId) return;
-  const r = getRequirement(db, requirementId);
-  if (["pending_acceptance", "accepted"].includes(r.state))
-    writeDomainObject(
-      db,
-      ctx,
-      r.id,
-      { ...r, state: "active", evidenceReady: false },
-      "testRegression",
-    );
-}
+export { reconcileRequirement as reconcileTestRequirement } from "../requirements/reconcile.js";
 export function validateTestInput(db: Database, input: TestInput): void {
   const t = testTarget(db, input.target),
     r = testRequirement(db, input.target);

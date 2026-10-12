@@ -13,7 +13,6 @@ import {
 } from "../tasks/service.js";
 import {
   testTarget,
-  coverage,
   insertTestRecord,
   reconcileTestRequirement,
 } from "./evidence.js";
@@ -60,8 +59,7 @@ export function recordTest(
     if (input.target.kind === "task")
       return recordCanonicalTaskTest(db, ctx, t, input);
     const record = insertTestRecord(db, ctx, input);
-    if (!coverage(db, input.target, input.revision, input.targetVersion).passed)
-      reconcileTestRequirement(db, ctx, t.id);
+    reconcileTestRequirement(db, ctx, t.id);
     // Advance optimistic version even for partial requirement evidence, retaining functional revision.
     const current = testTarget(db, input.target);
     writeDomainObject(

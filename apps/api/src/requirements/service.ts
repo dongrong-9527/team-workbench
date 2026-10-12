@@ -1,3 +1,4 @@
+import { reconcileRequirement } from "./reconcile.js";
 import { isDeepStrictEqual } from "node:util";
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
@@ -492,6 +493,7 @@ export function changeRequirement(
       },
       cmd.action,
     );
+    reconcileRequirement(db, ctx, id);
     const result = getRequirement(db, id);
     return result;
   });

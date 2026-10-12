@@ -1,3 +1,4 @@
+import { reconcileProjectRequirements } from "../requirements/reconcile.js";
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { DomainError, mutate, type MutationContext } from "../db/mutate.js";
@@ -118,6 +119,11 @@ export function manageMember(
     db.prepare("DELETE FROM auth_tickets WHERE member_id=?").run(id);
     if (action === "reset") raw = issueTicket(db, id, "reset");
     memberEvent(db, ctx.actorId, id, action, before);
+    if (action === "deactivate")
+      for (const p of db
+        .prepare("SELECT DISTINCT project_id FROM roles WHERE member_id=?")
+        .all(id) as { project_id: string }[])
+        reconcileProjectRequirements(db, ctx, p.project_id);
     return {
       id,
       version: old.version + 1,

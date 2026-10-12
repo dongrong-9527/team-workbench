@@ -1159,15 +1159,7 @@ it("task_06 failure on product-excluded check does not invalidate mandatory pass
       )
     ).status,
   ).toBe(200);
-  const row = f.db
-    .prepare("SELECT current FROM objects WHERE id=?")
-    .get(r.id) as any;
-  f.db
-    .prepare("UPDATE objects SET current=?,version=version+1 WHERE id=?")
-    .run(
-      JSON.stringify({ ...JSON.parse(row.current), state: "accepted" }),
-      r.id,
-    );
+  await establishAcceptance(r.id);
   r = (await f.api<any>("GET", `/api/requirements/${r.id}`)).body;
   expect(
     (
@@ -1254,15 +1246,7 @@ it("task_06 optional task failure reopens task without regressing accepted requi
     ).status,
   ).toBe(200);
   t = (await f.api<any>("GET", `/api/tasks/${t.id}`)).body;
-  const row = f.db
-    .prepare("SELECT current FROM objects WHERE id=?")
-    .get(r.id) as any;
-  f.db
-    .prepare("UPDATE objects SET current=?,version=version+1 WHERE id=?")
-    .run(
-      JSON.stringify({ ...JSON.parse(row.current), state: "accepted" }),
-      r.id,
-    );
+  await establishAcceptance(r.id);
   expect(
     (
       await f.api(
@@ -1548,3 +1532,14 @@ it.each([
     ).toBe(422);
   },
 );
+
+// Task7 now establishes the real gate for earlier acceptance-preservation assertions.
+async function establishAcceptance(id: string) {
+ let r=(await f.api<any>('GET',`/api/requirements/${id}`)).body;
+ if(r.state==='ready') r=(await f.api<any>('POST',`/api/requirements/${id}/actions`,{action:'start',expectedVersion:r.version,reason:'Begin scope'},'product')).body;
+ const tested=await f.api('POST','/api/tests',{target:{kind:'requirement',id},revision:r.revision,targetVersion:'build-1',environment:'local',checks:r.criteria.filter((c:any)=>c.required).map((c:any)=>({checkId:c.id,result:'pass'})),expectedVersion:r.version},'tester');
+ expect(tested.status).toBe(200);
+ r=(await f.api<any>('GET',`/api/requirements/${id}`)).body;
+ const s=await f.api<any>('POST',`/api/requirements/${id}/submit-acceptance`,{revision:r.revision,targetVersion:'build-1',expectedVersion:r.version},'product');expect(s.status).toBe(200);
+ const a=await f.api('POST',`/api/requirements/${id}/acceptance`,{decision:'pass',revision:r.revision,targetVersion:'build-1',criteria:r.criteria.map((c:any)=>({id:c.id,passed:true})),expectedVersion:s.body.version},'product');expect(a.status).toBe(200);
+}

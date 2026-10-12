@@ -1,3 +1,4 @@
+import { reconcileProjectRequirements } from "../requirements/reconcile.js";
 import type { Database } from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { DomainError, mutate, type MutationContext } from "../db/mutate.js";
@@ -166,6 +167,7 @@ export function changeProject(
           : "projectRestored",
       before,
     );
+    if (action === "roles") reconcileProjectRequirements(db, ctx, id);
     return getProject(db, id);
   });
 }

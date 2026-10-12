@@ -61,6 +61,7 @@ export interface Criterion {
   required: boolean;
 }
 export interface Requirement {
+  acceptanceTargetVersion?: string;
   id: Id;
   projectId: Id;
   title: string;
@@ -218,3 +219,22 @@ export type BugCommand = {
     | "defineChecks";
   [key: string]: unknown;
 };
+
+export interface AcceptanceInput {
+  decision: "pass" | "return";
+  revision: number;
+  targetVersion: string;
+  criteria: { id: Id; passed: boolean; note?: string }[];
+  reason?: string;
+  reworkTaskIds?: Id[];
+  bugIds?: Id[];
+}
+export interface AcceptanceRecord extends AcceptanceInput {
+  id: Id;
+  requirementId: Id;
+  projectId: Id;
+  acceptorId: Id;
+  recordedAt: string;
+  recordedSeq: number;
+  snapshot: Record<string, unknown>;
+}
