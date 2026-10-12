@@ -1,3 +1,4 @@
+import { setImmediate as yieldToLoop } from "node:timers/promises";
 // Explicit synthetic-only benchmark fixture. This file is excluded from release packages.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -67,6 +68,9 @@ export async function seedLoad(
           task.id,
           { action: "refine", title: `Synthetic task ${i} revision ${j}` },
         );
+      // Drain native statement finalizers between bounded batches. A long synchronous
+      // fixture loop otherwise retains native allocations until the event loop resumes.
+      if (i % 100 === 99) await yieldToLoop();
       if (i % 1000 === 0)
         console.log(
           JSON.stringify({ seedObjects: i, time: new Date().toISOString() }),
