@@ -1543,3 +1543,130 @@ async function establishAcceptance(id: string) {
  const s=await f.api<any>('POST',`/api/requirements/${id}/submit-acceptance`,{revision:r.revision,targetVersion:'build-1',expectedVersion:r.version},'product');expect(s.status).toBe(200);
  const a=await f.api('POST',`/api/requirements/${id}/acceptance`,{decision:'pass',revision:r.revision,targetVersion:'build-1',criteria:r.criteria.map((c:any)=>({id:c.id,passed:true})),expectedVersion:s.body.version},'product');expect(a.status).toBe(200);
 }
+
+// A rejected or replayed command must preserve every durable domain effect.
+function durableState() {
+  return Object.fromEntries([
+    "objects", "events", "test_records", "requirement_scopes",
+    "execution_participations", "task_work", "task_checks", "idempotency",
+  ].map(table => [table, f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+}
+async function requirementAction(r: any, command: any) {
+  const result = await f.api<any>("POST", `/api/requirements/${r.id}/actions`,
+    { expectedVersion: r.version, ...command }, "product");
+  expect(result.status).toBe(200);
+  return result.body;
+}
+async function currentRequirement(id: string) {
+  return (await f.api<any>("GET", `/api/requirements/${id}`)).body;
+}
+async function checkRequirement(r: any, result: string, extra: any = {}) {
+  return f.api<any>("POST", "/api/tests", {
+    expectedVersion: r.version, target: { kind: "requirement", id: r.id },
+    revision: r.revision, targetVersion: "build-1", environment: "local",
+    checks: [{ checkId: "c1", result }], ...extra,
+  }, "tester");
+}
+async function unaffectedRevision(r: any) {
+  r = await requirementAction(r, { action: "revise", kind: "behavior",
+    reason: "Other behavior changed", affectedTaskIds: [], affectedCheckIds: [], impactConfirmed: true });
+  r = await requirementAction(r, { action: "makeReady",
+    source: { description: "Source", status: "unable", reason: "offline" } });
+  return r.state === "ready"
+    ? requirementAction(r, { action: "start", reason: "Continue execution" })
+    : r;
+}
+it.each(["fail", "untested", "intervening"])("older revision reuse cannot mask %s evidence", async contradiction => {
+  let r = await requirement();
+  const source = await checkRequirement(r, "pass");
+  expect(source.status).toBe(200);
+  r = await unaffectedRevision(await currentRequirement(r.id));
+  expect((await checkRequirement(r, contradiction === "untested" ? "untested" : "fail")).status).toBe(200);
+  r = await currentRequirement(r.id);
+  if (contradiction === "intervening") r = await unaffectedRevision(r);
+  // Supply the other mandatory criterion so only the obsolete c1 pass could unblock acceptance.
+  expect((await checkRequirement(r, "pass", { checks: [{ checkId: "c2", result: "pass" }] })).status).toBe(200);
+  r = await currentRequirement(r.id);
+  const before = durableState();
+  const reuse = await checkRequirement(r, "pass", { reusedFromId: source.body.id, reuseReason: "Unaffected criterion" });
+  expect(reuse.status).toBe(422);
+  expect(reuse.body.error).toBe("Superseded source result");
+  expect(durableState()).toEqual(before);
+  expect((await f.api("POST", `/api/requirements/${r.id}/submit-acceptance`, {
+    expectedVersion: r.version, revision: r.revision, targetVersion: "build-1",
+  }, "product")).status).toBe(422);
+  expect(durableState()).toEqual(before);
+  // A real new execution can supersede the contradictory observation.
+  expect((await checkRequirement(r, "pass")).status).toBe(200);
+  r = await currentRequirement(r.id);
+  expect((await f.api<any>("POST", `/api/requirements/${r.id}/submit-acceptance`, {
+    expectedVersion: r.version, revision: r.revision, targetVersion: "build-1",
+  }, "product")).body.state).toBe("pending_acceptance");
+});
+it("task command snapshots replay after pending and accepted parent progression", async () => {
+  let r = await requirement();
+  let t = (await f.api<any>("POST", "/api/tasks", { projectId: "p1", requirementId: r.id,
+    title: "Implementation", kind: "backend", definitionOfDone: "Works", priority: "medium", reviewerId: "tester" }, "product")).body;
+  const commands: { body: any; actor: "dev" | "tester"; key: string; response: any }[] = [];
+  for (const [action, actor, extra] of [
+    ["claim", "dev", {}], ["start", "dev", {}],
+    ["submit", "dev", { evidence: { done: "Done", selfCheck: "Pass", environment: "local" } }],
+    ["checkFail", "tester", { evidence: { result: "Missing case", environment: "local" } }],
+    ["submit", "dev", { evidence: { done: "Fixed", selfCheck: "Pass", environment: "local" } }],
+    ["checkPass", "tester", { evidence: { result: "Pass", environment: "local" } }],
+  ] as const) {
+    const body = { action, expectedVersion: t.version, ...extra }, key = `snapshot-${commands.length}-${action}`;
+    const response = await f.api<any>("POST", `/api/tasks/${t.id}/actions`, body, actor, key);
+    expect(response.status).toBe(200);
+    commands.push({ body, actor, key, response }); t = response.body;
+  }
+  r = await currentRequirement(r.id);
+  expect((await checkRequirement(r, "pass", { checks: [{ checkId: "c1", result: "pass" }, { checkId: "c2", result: "pass" }] })).status).toBe(200);
+  r = await currentRequirement(r.id);
+  r = (await f.api<any>("POST", `/api/requirements/${r.id}/submit-acceptance`, {
+    expectedVersion: r.version, revision: r.revision, targetVersion: "build-1",
+  }, "product")).body;
+  expect(r.state).toBe("pending_acceptance");
+  for (const state of ["pending_acceptance", "accepted"]) {
+    if (state === "accepted") {
+      r = (await f.api<any>("POST", `/api/requirements/${r.id}/acceptance`, {
+        expectedVersion: r.version, decision: "pass", revision: r.revision, targetVersion: "build-1",
+        criteria: [{ id: "c1", passed: true }, { id: "c2", passed: true }],
+      }, "product")).body;
+      expect(r.state).toBe(state);
+    }
+    const before = durableState();
+    for (const command of commands) {
+      expect(await f.api("POST", `/api/tasks/${t.id}/actions`, command.body, command.actor, command.key)).toEqual(command.response);
+      expect(durableState()).toEqual(before);
+      // Identical business action with a fresh key remains ineligible.
+      expect((await f.api("POST", `/api/tasks/${t.id}/actions`, { ...command.body, expectedVersion: t.version }, command.actor)).status).toBe(422);
+      expect(durableState()).toEqual(before);
+    }
+  }
+});
+it("first linked Bug repair activates ready scope atomically and rolls back on the late Bug event", async () => {
+  const r = await requirement();
+  let b = await create({ requirementId: r.id });
+  b = (await act(b, "confirm", { reason: "Reproduced" })).body;
+  b = (await act(b, "claim", {}, "dev")).body;
+  const before = durableState();
+  f.db.exec("CREATE TRIGGER fail_repair_event BEFORE INSERT ON events WHEN NEW.target_kind='bug' AND NEW.action='start' BEGIN SELECT RAISE(ABORT,'late repair failure'); END");
+  expect((await act(b, "start", {}, "dev", "repair-start")).status).toBe(500);
+  expect(durableState()).toEqual(before);
+  f.db.exec("DROP TRIGGER fail_repair_event");
+  const result = await act(b, "start", {}, "dev", "repair-start");
+  expect(result.status).toBe(200);
+  expect(result.body.state).toBe("fixing");
+  const current = await currentRequirement(r.id);
+  expect(current.state).toBe("active");
+  expect(current.version).toBe(r.version + 1);
+  const events = f.events("requirement", r.id);
+  expect(events.at(-1)?.action).toBe("bugStarted");
+  expect(events.at(-1)?.actorId).toBe("dev");
+  expect(f.db.prepare("SELECT * FROM requirement_scopes WHERE requirement_id=? AND version=?").get(r.id, current.version)).toBeTruthy();
+  expect(f.db.prepare("SELECT member_id,requirement_id,activity FROM execution_participations WHERE object_id=?").all(b.id)).toEqual([{ member_id: "dev", requirement_id: r.id, activity: "repair" }]);
+  const after = durableState();
+  expect(await act(b, "start", {}, "dev", "repair-start")).toEqual(result);
+  expect(durableState()).toEqual(after);
+});

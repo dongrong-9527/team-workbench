@@ -321,6 +321,17 @@ export function actBug(
           if (b.blocked) throw new DomainError(422, "Bug blocked");
           n.state = "fixing";
           recordExecutionParticipation(db, id, ctx.actorId, b.role);
+          if (b.requirementId) {
+            const r = getRequirement(db, b.requirementId);
+            if (r.state === "ready")
+              writeDomainObject(
+                db,
+                ctx,
+                r.id,
+                { ...r, state: "active" },
+                "bugStarted",
+              );
+          }
           break;
         case "submit":
           state(b, ["fixing"]);

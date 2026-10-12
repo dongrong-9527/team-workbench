@@ -102,11 +102,13 @@ export function auth(
         ).archived
       )
         throw new DomainError(409, "ARCHIVED");
-      parent(
-        c,
-        x,
-        ["claim", "start", "submit", "checkPass", "checkFail"].includes(action),
-      );
+      const requirement = parent(c, x);
+      if (
+        ["claim", "start", "submit", "checkPass", "checkFail"].includes(action) &&
+        requirement &&
+        (!requirement.scopeConfirmed || requirement.blocked)
+      )
+        throw new DomainError(422, "Requirement not executable");
       if (action === "recordTest") {
         const r = parent(c, x);
         if (
@@ -351,6 +353,12 @@ export function actTask(
     ),
     () => {
       const t = getTask(db, id);
+      // Execution state applies only to a new command, after successful replay lookup.
+      if (
+        ["claim", "start", "submit", "checkPass", "checkFail"].includes(cmd.action) &&
+        !cmd.test
+      )
+        parent(db, t, true);
       if (ctx.expectedVersion === undefined)
         throw new DomainError(400, "expectedVersion required");
       if (t.version !== ctx.expectedVersion)

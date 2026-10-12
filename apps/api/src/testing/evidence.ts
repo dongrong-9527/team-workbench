@@ -140,7 +140,11 @@ export function validateTestInput(db: Database, input: TestInput): void {
       const latest = records(db, input.target)
         .filter(
           (x) =>
-            x.revision === s.revision &&
+            (s.revision === undefined
+              ? x.revision === undefined
+              : x.revision !== undefined &&
+                x.revision >= s.revision &&
+                x.revision <= (input.revision ?? s.revision)) &&
             x.targetVersion === s.targetVersion &&
             x.checks.some((check) => check.checkId === c.checkId),
         )
