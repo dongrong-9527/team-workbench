@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import { isDeepStrictEqual } from 'node:util';
 export class DomainError extends Error {
  constructor(public statusCode:number,message:string,public latest?:unknown){super(message);}
 }
@@ -39,7 +40,7 @@ export function changeObject(db:Database,ctx:MutationContext,id:string,current:R
  if(ctx.expectedVersion===undefined) throw new DomainError(400,'expectedVersion is required');
  if(old.version!==ctx.expectedVersion) throw new DomainError(409,'Version conflict',{id:old.id,version:old.version,current:JSON.parse(old.current)});
  const after=JSON.stringify(current);
- if(old.current===after) return;
+ if(isDeepStrictEqual(JSON.parse(old.current),JSON.parse(after))) return;
  const changed=db.prepare('UPDATE objects SET current=?,version=version+1 WHERE id=? AND version=?').run(after,id,ctx.expectedVersion);
  if(changed.changes!==1) throw new DomainError(409,'Version conflict');
  db.prepare('INSERT INTO events (time,action,actor_id,target_kind,target_id,before_snapshot,after_snapshot) VALUES (?,?,?,?,?,?,?)').run(new Date().toISOString(),action,ctx.actorId,old.kind,id,old.current,after);

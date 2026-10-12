@@ -97,3 +97,22 @@ it('migration failure leaves no partial schema and succeeds after cause is remov
   db.exec('DROP TABLE members');migrate(db);expect(db.prepare('SELECT * FROM schema_migrations').all()).toHaveLength(1);
  } finally {db.close();}
 });
+it('reordered JSON object properties are a no-op while array order remains significant', async () => {
+ const {mutate,changeObject}=await import('../apps/api/src/db/mutate.js');
+ const current={a:1,b:2,nested:{x:'one',y:'two'},items:[{first:1,second:2},'tail']};
+ f.db.prepare("INSERT INTO objects VALUES ('t1','task','p1',1,?)").run(JSON.stringify(current));
+ const reordered={items:[{second:2,first:1},'tail'],nested:{y:'two',x:'one'},b:2,a:1};
+ mutate(f.db,{...f.context,expectedVersion:1},()=>{
+  changeObject(f.db,{...f.context,expectedVersion:1},'t1',reordered,'updated');return {ok:true};
+ });
+ expect(f.read('test_objects')[0].version).toBe(1);
+ expect(f.read('test_objects')[0].current).toBe(JSON.stringify(current));
+ expect(f.events()).toEqual([]);
+ const changed={...reordered,items:['tail',{second:2,first:1}]};
+ mutate(f.db,{...f.context,requestId:'array-change',expectedVersion:1},()=>{
+  changeObject(f.db,{...f.context,expectedVersion:1},'t1',changed,'updated');return {ok:true};
+ });
+ expect(f.read('test_objects')[0].version).toBe(2);
+ expect(JSON.parse(f.read('test_objects')[0].current)).toEqual(changed);
+ expect(f.events()).toHaveLength(1);
+});
