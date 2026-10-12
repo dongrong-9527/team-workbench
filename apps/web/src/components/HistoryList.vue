@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { useReadScope } from "../composables/readScope";
 import { request } from "../api/client";
 import { zh } from "../state";
 import { actionNames } from "../forms";
@@ -13,9 +14,17 @@ const items = ref<HistoryEntry[]>([]),
   cutoff = ref<number>(),
   error = ref(""),
   busy = ref(false);
-let generation = 0;
+const reads = useReadScope(() =>
+  JSON.stringify([props.kind, props.id, props.refresh]),
+);
 async function load(more = false) {
-  const requestGeneration = ++generation;
+  const read = reads.begin(more);
+  if (!read || (more && next.value === null)) return;
+  if (!more) {
+    items.value = [];
+    next.value = null;
+    cutoff.value = undefined;
+  }
   busy.value = true;
   error.value = "";
   try {
@@ -28,14 +37,17 @@ async function load(more = false) {
       ? `/api/audit/${props.kind}/${props.id}`
       : `/api/objects/${props.kind}/${props.id}/history`;
     const page = await request<SeqPage<HistoryEntry>>(`${path}?${q}`);
-    if (generation !== requestGeneration) return;
-    items.value = more ? [...items.value, ...page.items] : page.items;
-    next.value = page.nextAfterSeq;
-    cutoff.value = page.cutoffSeq;
+    read.commit(() => {
+      items.value = more ? [...items.value, ...page.items] : page.items;
+      next.value = page.nextAfterSeq;
+      cutoff.value = page.cutoffSeq;
+    });
   } catch (e) {
-    if (generation === requestGeneration) error.value = (e as Error).message;
+    if (read.valid()) error.value = (e as Error).message;
   } finally {
-    if (generation === requestGeneration) busy.value = false;
+    read.finish(() => {
+      busy.value = false;
+    });
   }
 }
 watch(

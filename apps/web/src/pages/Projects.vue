@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { state, zh, refreshDirectory, refreshProject } from "../state";
 import { request, type Page } from "../api/client";
 import { createForm, field, type FormSpec } from "../forms";
+import { useReadScope } from "../composables/readScope";
 import WorkList from "../components/WorkList.vue";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
@@ -37,32 +38,55 @@ const projects = computed(() =>
       (archive.value === "archived" ? p.archived : !p.archived),
   ),
 );
+const reads = useReadScope(() =>
+  JSON.stringify([
+    projectId.value,
+    kind.value,
+    status.value,
+    owner.value,
+    blocked.value,
+    route.query.q,
+  ]),
+);
 async function load(more = false) {
+  const read = reads.begin(more);
+  if (!read || (more && !cursor.value)) return;
+  const id = projectId.value;
+  const search = route.query.q ? String(route.query.q) : "";
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries({
+    projectId: id,
+    kind: kind.value,
+    state: status.value,
+    ownerId: owner.value,
+    blocked: blocked.value,
+    q: search,
+    cursor: more ? cursor.value : "",
+  }))
+    if (v) q.set(k, v);
+  if (!more) {
+    items.value = [];
+    cursor.value = null;
+    overview.value = undefined;
+  }
   error.value = "";
   busy.value = true;
   try {
-    if (projectId.value) overview.value = await refreshProject(projectId.value);
-    else overview.value = undefined;
-    const q = new URLSearchParams();
-    for (const [k, v] of Object.entries({
-      projectId: projectId.value,
-      kind: kind.value,
-      state: status.value,
-      ownerId: owner.value,
-      blocked: blocked.value,
-      q: route.query.q ? String(route.query.q) : "",
-      cursor: more ? cursor.value : "",
-    }))
-      if (v) q.set(k, v);
-    const p = await request<Page<any>>(
-      (route.query.q ? "/api/search?" : "/api/objects?") + q,
-    );
-    items.value = more ? [...items.value, ...p.items] : p.items;
-    cursor.value = p.nextCursor;
+    const [details, p] = await Promise.all([
+      id ? refreshProject(id, read.valid) : Promise.resolve(undefined),
+      request<Page<any>>((search ? "/api/search?" : "/api/objects?") + q),
+    ]);
+    read.commit(() => {
+      overview.value = details;
+      items.value = more ? [...items.value, ...p.items] : p.items;
+      cursor.value = p.nextCursor;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (read.valid()) error.value = (e as Error).message;
   } finally {
-    busy.value = false;
+    read.finish(() => {
+      busy.value = false;
+    });
   }
 }
 watch(
@@ -297,7 +321,12 @@ async function saved(result: any) {
     <p v-if="!busy && !items.length && !error" class="empty">
       当前条件下没有工作事项
     </p>
-    <button v-if="cursor" @click="load(true)" class="load-more">
+    <button
+      v-if="cursor"
+      :disabled="busy"
+      @click="load(true)"
+      class="load-more"
+    >
       加载更多
     </button>
   </section>

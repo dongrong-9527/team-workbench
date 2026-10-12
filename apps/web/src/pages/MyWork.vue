@@ -2,6 +2,7 @@
 import { ref, watch, computed } from "vue";
 import { request, type Page } from "../api/client";
 import { state, today } from "../state";
+import { useReadScope } from "../composables/readScope";
 import WorkList from "../components/WorkList.vue";
 const items = ref<any[]>([]),
   cursor = ref<string | null>(null),
@@ -37,7 +38,22 @@ const stats = computed(() => [
     value: items.value.filter((x) => x.flags.missingUpdate).length,
   },
 ]);
+const reads = useReadScope(() =>
+  JSON.stringify([
+    state.projectId,
+    kind.value,
+    status.value,
+    blocked.value,
+    owner.value,
+  ]),
+);
 async function load(more = false) {
+  const read = reads.begin(more);
+  if (!read || (more && !cursor.value)) return;
+  if (!more) {
+    items.value = [];
+    cursor.value = null;
+  }
   busy.value = true;
   error.value = "";
   try {
@@ -52,12 +68,16 @@ async function load(more = false) {
     }))
       if (v) q.set(k, v);
     const p = await request<Page<any>>("/api/my-work?" + q);
-    items.value = more ? [...items.value, ...p.items] : p.items;
-    cursor.value = p.nextCursor;
+    read.commit(() => {
+      items.value = more ? [...items.value, ...p.items] : p.items;
+      cursor.value = p.nextCursor;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (read.valid()) error.value = (e as Error).message;
   } finally {
-    busy.value = false;
+    read.finish(() => {
+      busy.value = false;
+    });
   }
 }
 watch(

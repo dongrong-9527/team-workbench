@@ -94,7 +94,10 @@ export interface Page<T> {
   items: T[];
   nextCursor: string | null;
 }
-export async function allPages<T>(path: string): Promise<T[]> {
+export async function allPages<T>(
+  path: string,
+  valid: () => boolean = () => true,
+): Promise<T[]> {
   let result: T[] = [];
   let cursor: string | null = null;
   do {
@@ -104,13 +107,17 @@ export async function allPages<T>(path: string): Promise<T[]> {
         "limit=100" +
         (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""),
     );
+    if (!valid()) return [];
     result.push(...p.items);
     cursor = p.nextCursor;
   } while (cursor);
   return result;
 }
 
-export async function allSeqPages<T>(path: string): Promise<T[]> {
+export async function allSeqPages<T>(
+  path: string,
+  valid: () => boolean = () => true,
+): Promise<T[]> {
   let result: T[] = [],
     after = 0,
     cutoff: number | undefined;
@@ -123,6 +130,7 @@ export async function allSeqPages<T>(path: string): Promise<T[]> {
           after +
           (cutoff === undefined ? "" : "&cutoffSeq=" + cutoff),
       );
+    if (!valid()) return [];
     result.push(...p.items);
     cutoff = p.cutoffSeq;
     if (p.nextAfterSeq === null) return result;

@@ -421,7 +421,9 @@ export function actionForm(
       ...pick(v, [
         "reason",
         "handoff",
-        bug ? "resetToReady" : "resetToPending",
+        ...(action === "requestTransfer"
+          ? []
+          : [bug ? "resetToReady" : "resetToPending"]),
       ]),
       ...(action !== "requestTransfer" ? { ownerId: v.ownerId || null } : {}),
     });

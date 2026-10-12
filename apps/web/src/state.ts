@@ -126,11 +126,15 @@ export function objectPath(kind: string, id: string) {
   return `/${kind}/${id}`;
 }
 
-export async function refreshProject(id: string) {
+export async function refreshProject(
+  id: string,
+  isCurrent: () => boolean = () => true,
+) {
   const [overview, members] = await Promise.all([
     request<any>(`/api/projects/${id}/overview`),
     allPages<Member>(`/api/members?projectId=${id}`),
   ]);
+  if (!isCurrent()) return overview;
   const i = state.projects.findIndex((p) => p.id === id);
   const p = { ...overview.project, myRoles: overview.myRoles };
   if (i >= 0) state.projects[i] = p;

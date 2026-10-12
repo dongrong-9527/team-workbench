@@ -1,19 +1,13 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { login, action, submit, task } from "./helpers.js";
-let browserErrors: string[] = [];
-test.beforeEach(async ({ page }) => {
-  browserErrors = [];
-  page.on("pageerror", (error) => browserErrors.push(error.message));
-});
-test.afterEach(() => {
-  expect(browserErrors, "No uncaught browser errors").toEqual([]);
-});
 test("task_10 two contexts claim one task and show safe conflict without overwrite", async ({
   page,
   browser,
+  observeContext,
 }) => {
   const url = await task(page, "双人认领竞争", "");
   const other = await browser.newContext({ ignoreHTTPSErrors: true });
+  await observeContext(other);
   const p2 = await other.newPage();
   await login(page, "dev");
   await login(p2, "dev2");

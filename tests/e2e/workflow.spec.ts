@@ -1,19 +1,5 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { login, action, submit, task, evidence, checks } from "./helpers.js";
-let browserErrors: string[] = [];
-test.beforeEach(async ({ page }) => {
-  browserErrors = [];
-  page.on("pageerror", (error) =>
-    browserErrors.push(error.stack ?? error.message),
-  );
-  page.on("console", (message) => {
-    if (message.text().includes("[Vue warn]: Unhandled error"))
-      browserErrors.push(message.text());
-  });
-});
-test.afterEach(() => {
-  expect(browserErrors, "No uncaught browser errors").toEqual([]);
-});
 test("task_10 submit checks and interrupted update retain input and retry key", async ({
   page,
 }) => {

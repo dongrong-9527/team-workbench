@@ -1,13 +1,5 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { login, task, action, submit } from "./helpers.js";
-let browserErrors: string[] = [];
-test.beforeEach(async ({ page }) => {
-  browserErrors = [];
-  page.on("pageerror", (error) => browserErrors.push(error.message));
-});
-test.afterEach(() => {
-  expect(browserErrors, "No uncaught browser errors").toEqual([]);
-});
 test("task_10 report source versions editing regeneration clipboard denial and immutable old draft", async ({
   page,
   context,

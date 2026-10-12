@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from "vue";
+import { ref, watch, computed, nextTick, onBeforeUnmount } from "vue";
 import { state, today, nameOf } from "../state";
-import { request, command, ApiError } from "../api/client";
+import { request, command, ApiError, allSeqPages } from "../api/client";
+import { useReadScope } from "../composables/readScope";
 import {
   REPORT_TEXT_LIMITS,
   type ReportVersion,
-  type SeqPage,
   type ReportSourceChanges,
 } from "../../../../packages/contracts/src/index";
 import SourceList from "../components/SourceList.vue";
@@ -16,6 +16,10 @@ let saved: any;
 try {
   saved = JSON.parse(localStorage.getItem(key) ?? "null");
 } catch {}
+let alive = true;
+onBeforeUnmount(() => {
+  alive = false;
+});
 const date = ref(saved?.date ?? today()),
   timeZone = ref(saved?.timeZone ?? "Asia/Shanghai"),
   memberIds = ref<string[]>(saved?.memberIds ?? [actor]),
@@ -24,11 +28,13 @@ const date = ref(saved?.date ?? today()),
       (state.projectId ? [state.projectId] : state.projects.map((p) => p.id)),
   ),
   current = ref<ReportVersion>(),
-  editor = ref(saved?.editor ?? ""),
+  editor = ref(""),
+  expectedVersion = ref<number>(),
   history = ref<ReportVersion[]>([]),
   versions = ref<ReportVersion[]>([]),
   sourceChanges = ref<ReportSourceChanges>(),
   error = ref(""),
+  metadataError = ref(""),
   notice = ref(""),
   busy = ref(false),
   manualCopy = ref(false),
@@ -37,24 +43,23 @@ const date = ref(saved?.date ?? today()),
   confirmRegenerate = ref(false),
   regenerateIntent = ref(true),
   textarea = ref<HTMLTextAreaElement>();
-const cmd = command(key + ":command");
+interface LocalDraft {
+  id: string;
+  text: string;
+  expectedVersion: number;
+}
+const recoverable = ref<LocalDraft[]>([]),
+  draftId = ref<string>(crypto.randomUUID());
+const generateCommand = command(key + ":generate-command");
 const dirty = computed(
     () => !!current.value && editor.value !== current.value.text,
   ),
   mine = computed(() => current.value?.creatorId === actor);
-function closeCurrent() {
-  if (
-    dirty.value &&
-    !window.confirm("未保存内容将保留在本地副本，返回全部日报？")
-  )
-    return;
-  if (dirty.value)
-    localStorage.setItem(`${key}:previous:${current.value!.id}`, editor.value);
-  current.value = undefined;
-  editor.value = "";
-  saved = null;
-  localStorage.removeItem(key);
-}
+const metadataReads = useReadScope(() => current.value?.id ?? ""),
+  listReads = useReadScope(() => actor);
+const draftPrefix = (r: ReportVersion) => `${key}:draft:${r.id}:${r.version}`;
+const draftKey = (r: ReportVersion, id = draftId.value) =>
+  `${draftPrefix(r)}:${id}`;
 function persist() {
   localStorage.setItem(
     key,
@@ -63,65 +68,189 @@ function persist() {
       timeZone: timeZone.value,
       memberIds: memberIds.value,
       projectIds: projectIds.value,
-      id: current.value?.id ?? saved?.id,
-      editor: editor.value,
+      id: current.value?.id,
     }),
   );
 }
-watch([date, timeZone, memberIds, projectIds, editor], persist, { deep: true });
-async function seqAll<T>(path: string) {
-  let items: T[] = [],
-    after = 0,
-    cutoff: number | undefined;
-  do {
-    const p: SeqPage<T> = await request(
-      path +
-        `?limit=100&afterSeq=${after}` +
-        (cutoff === undefined ? "" : `&cutoffSeq=${cutoff}`),
+watch([date, timeZone, memberIds, projectIds], persist, { deep: true });
+function persistDraft() {
+  const r = current.value;
+  if (!r || !mine.value || recoverable.value.length) return;
+  if (dirty.value)
+    localStorage.setItem(
+      draftKey(r),
+      JSON.stringify({
+        id: draftId.value,
+        text: editor.value,
+        expectedVersion: expectedVersion.value,
+      }),
     );
-    items.push(...p.items);
-    cutoff = p.cutoffSeq;
-    if (p.nextAfterSeq === null) return items;
-    after = p.nextAfterSeq;
-  } while (true);
+  else localStorage.removeItem(draftKey(r));
 }
-async function list() {
-  history.value = await seqAll<ReportVersion>("/api/reports");
+function readDrafts(r: ReportVersion): LocalDraft[] {
+  try {
+    const legacy = JSON.parse(localStorage.getItem(draftPrefix(r)) ?? "null");
+    const previous = localStorage.getItem(`${key}:previous:${r.id}`);
+    const old =
+      legacy?.text ??
+      previous ??
+      (saved?.id === r.id ? saved.editor : undefined);
+    if (typeof old === "string" && old !== r.text) {
+      const id = crypto.randomUUID();
+      localStorage.setItem(
+        draftKey(r, id),
+        JSON.stringify({
+          id,
+          text: old,
+          expectedVersion: legacy?.expectedVersion ?? r.version,
+        }),
+      );
+      localStorage.removeItem(draftPrefix(r));
+      localStorage.removeItem(`${key}:previous:${r.id}`);
+      if (saved?.id === r.id) delete saved.editor;
+    }
+    return Object.keys(localStorage)
+      .filter((k) => k.startsWith(draftPrefix(r) + ":"))
+      .flatMap((k) => {
+        try {
+          const draft = JSON.parse(localStorage.getItem(k) ?? "null");
+          return draft &&
+            typeof draft.id === "string" &&
+            typeof draft.text === "string" &&
+            Number.isSafeInteger(draft.expectedVersion)
+            ? [draft]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+  } catch {
+    return [];
+  }
 }
-async function select(r: ReportVersion, retain = false) {
+function restoreDraft(draft: LocalDraft) {
+  editor.value = draft.text;
+  expectedVersion.value = draft.expectedVersion;
+  draftId.value = draft.id;
+  recoverable.value = [];
+  notice.value = "已恢复本地草稿，请核对原版本后主动保存。";
+}
+function discardDraft(draft: LocalDraft) {
+  if (current.value) localStorage.removeItem(draftKey(current.value, draft.id));
+  recoverable.value = recoverable.value.filter((d) => d.id !== draft.id);
+  notice.value = "已丢弃这一份本地草稿，保存的历史稿件未变。";
+}
+function closeCurrent() {
   if (
-    !retain &&
     dirty.value &&
-    !window.confirm("此日报有未保存修改。切换前将保留本地副本，继续切换？")
+    !window.confirm("未保存内容将保留在本地副本，返回全部日报？")
   )
     return;
-  if (dirty.value)
-    localStorage.setItem(`${key}:previous:${current.value!.id}`, editor.value);
+  persistDraft();
+  metadataReads.invalidate();
+  current.value = undefined;
+  editor.value = "";
+  recoverable.value = [];
+  versions.value = [];
+  sourceChanges.value = undefined;
+  metadataError.value = "";
+  saved = null;
+  persist();
+}
+function adopt(r: ReportVersion, retain = false, offerDraft = true) {
+  const text = editor.value;
   current.value = r;
-  if (!retain) editor.value = r.text;
+  editor.value = retain ? text : r.text;
+  expectedVersion.value = r.version;
+  draftId.value = crypto.randomUUID();
+  recoverable.value = offerDraft && r.creatorId === actor ? readDrafts(r) : [];
+  conflict.value = undefined;
   date.value = r.input.date;
   timeZone.value = r.input.timeZone;
   memberIds.value = [...r.input.memberIds];
   projectIds.value = [...r.input.projectIds];
-  versions.value = await seqAll<ReportVersion>(`/api/reports/${r.id}/versions`);
-  sourceChanges.value = await request(`/api/reports/${r.id}/source-changes`);
   persist();
 }
-async function init() {
+async function list() {
+  const read = listReads.begin();
+  if (!read) return;
   try {
-    await list();
-    if (saved?.id) {
-      const r = await request<ReportVersion>("/api/reports/" + saved.id);
-      await select(r, true);
-    }
+    const rows = await allSeqPages<ReportVersion>("/api/reports", read.valid);
+    read.commit(() => {
+      history.value = rows;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (read.valid()) metadataError.value = (e as Error).message;
+  } finally {
+    read.finish(() => {});
+  }
+}
+async function loadMetadata() {
+  const r = current.value,
+    read = metadataReads.begin();
+  if (!r || !read) return;
+  metadataError.value = "";
+  versions.value = [];
+  sourceChanges.value = undefined;
+  try {
+    const [rows, changes] = await Promise.all([
+      allSeqPages<ReportVersion>(`/api/reports/${r.id}/versions`, read.valid),
+      request<ReportSourceChanges>(`/api/reports/${r.id}/source-changes`),
+    ]);
+    read.commit(() => {
+      versions.value = rows;
+      sourceChanges.value = changes;
+    });
+  } catch (e) {
+    if (read.valid()) metadataError.value = (e as Error).message;
+  } finally {
+    read.finish(() => {});
+  }
+}
+async function select(r: ReportVersion) {
+  if (busy.value) return;
+  if (
+    dirty.value &&
+    !window.confirm("此日报有未保存修改。切换前将保留本地副本，继续切换？")
+  )
+    return;
+  persistDraft();
+  adopt(r);
+  await loadMetadata();
+}
+async function init() {
+  await list();
+  if (alive && !current.value && saved?.id) {
+    const id = saved.id;
+    try {
+      const r = await request<ReportVersion>("/api/reports/" + id);
+      if (alive && !current.value) {
+        adopt(r);
+        await loadMetadata();
+      }
+    } catch (e) {
+      if (alive) fail(e);
+    }
   }
 }
 void init();
 function fail(e: unknown) {
   error.value = (e as Error).message;
   if (e instanceof ApiError && e.current) conflict.value = e.current;
+}
+async function saveMutation() {
+  const base = current.value!,
+    savingDraftId = draftId.value;
+  const saveCommand = command(`${key}:save-command:${savingDraftId}`);
+  const r = await saveCommand.send<ReportVersion>(
+    `/api/reports/${base.id}/versions`,
+    { text: editor.value, expectedVersion: expectedVersion.value },
+  );
+  // An acknowledged mutation is complete even if a later metadata read fails.
+  localStorage.removeItem(draftKey(base, savingDraftId));
+  saveCommand.reset();
+  if (alive) adopt(r, false, false);
+  return r;
 }
 async function generate(regenerate = false) {
   if (busy.value) return;
@@ -143,49 +272,47 @@ async function generate(regenerate = false) {
       memberIds: [...memberIds.value],
       projectIds: [...projectIds.value],
     };
-    if (dirty.value) {
-      const original = await cmd.send<ReportVersion>(
-        `/api/reports/${current.value!.id}/versions`,
-        { text: editor.value, expectedVersion: current.value!.version },
-      );
-      await select(original, true);
-      editor.value = original.text;
-    }
+    if (dirty.value) await saveMutation();
+    if (!alive) return;
     const c = current.value;
     const input = regenerate
-      ? { ...c!.input, previousReportId: c!.id, expectedVersion: c!.version }
+      ? {
+          ...c!.input,
+          previousReportId: c!.id,
+          expectedVersion: expectedVersion.value,
+        }
       : selection;
-    const r = await cmd.send<ReportVersion>("/api/reports", input);
-    editor.value = r.text;
-    await select(r, true);
-    await list();
+    const r = await generateCommand.send<ReportVersion>("/api/reports", input);
+    generateCommand.reset();
+    if (!alive) return;
+    adopt(r, false, false);
     notice.value = regenerate
       ? "已生成新版本，旧稿仍在版本历史中。"
       : "日报草稿已生成，请核对来源。";
-    confirmRegenerate.value = false;
+    await Promise.all([loadMetadata(), list()]);
   } catch (e) {
-    confirmRegenerate.value = false;
-    fail(e);
+    if (alive) fail(e);
   } finally {
-    busy.value = false;
+    if (alive) {
+      confirmRegenerate.value = false;
+      busy.value = false;
+    }
   }
 }
 async function save() {
+  if (busy.value || !current.value) return;
   busy.value = true;
   error.value = "";
   try {
-    const r = await cmd.send<ReportVersion>(
-      `/api/reports/${current.value!.id}/versions`,
-      { text: editor.value, expectedVersion: current.value!.version },
-    );
-    await select(r, true);
-    editor.value = r.text;
-    await list();
-    notice.value = "已保存新的稿件版本";
+    await saveMutation();
+    if (alive) {
+      notice.value = "已保存新的稿件版本";
+      await Promise.all([loadMetadata(), list()]);
+    }
   } catch (e) {
-    fail(e);
+    if (alive) fail(e);
   } finally {
-    busy.value = false;
+    if (alive) busy.value = false;
   }
 }
 async function copy() {
@@ -207,11 +334,14 @@ async function latest() {
     const r = await request<ReportVersion>(
       "/api/reports/" + String(conflict.value?.id),
     );
-    await select(r, true);
-    conflict.value = undefined;
+    if (!alive) return;
+    persistDraft();
+    adopt(r, true, false);
+    persistDraft();
     error.value = "已切换到最新版本，保留你的文本。请核对后主动保存。";
+    await loadMetadata();
   } catch (e) {
-    fail(e);
+    if (alive) fail(e);
   }
 }
 </script>
@@ -272,9 +402,21 @@ async function latest() {
   <ConflictNotice
     v-if="conflict"
     :current="conflict"
-    :original-version="current?.version"
+    :original-version="expectedVersion"
     @adopt="latest"
   />
+  <p v-if="metadataError" class="error" role="alert">
+    稿件内容已保留，附加信息读取失败：{{ metadataError }}
+    <button
+      :disabled="busy"
+      @click="
+        loadMetadata();
+        list();
+      "
+    >
+      重试读取日报信息
+    </button>
+  </p>
   <p v-if="notice" class="success" role="status">{{ notice }}</p>
   <div class="detail-layout">
     <section class="panel panel-body">
@@ -313,13 +455,32 @@ async function latest() {
             查看来源（{{ current.sources.length }}）
           </button>
         </div>
+        <section
+          v-if="recoverable.length"
+          class="panel panel-body"
+          aria-label="本地草稿恢复"
+        >
+          <h3>发现本版本的本地草稿</h3>
+          <article v-for="draft in recoverable" :key="draft.id">
+            <p>
+              原并发版本
+              {{
+                draft.expectedVersion
+              }}。恢复后仍需主动保存，历史稿件不会自动改变。
+            </p>
+            <p class="body-text">{{ draft.text.slice(0, 160) }}</p>
+            <button @click="restoreDraft(draft)">恢复本地草稿</button
+            ><button @click="discardDraft(draft)">丢弃本地草稿</button>
+          </article>
+        </section>
         <template v-if="tab === 'editor'"
           ><label
             >日报文本<textarea
               ref="textarea"
               v-model="editor"
+              @input="persistDraft"
               class="report-editor"
-              :readonly="!mine || busy"
+              :readonly="!mine || busy || recoverable.length > 0"
               :maxlength="REPORT_TEXT_LIMITS.edited"
             />
           </label>
@@ -364,14 +525,16 @@ async function latest() {
         <h2>{{ current ? "本日报版本" : "已保存日报" }}</h2>
         <ul class="history">
           <li v-for="r in (current ? versions : history).slice().reverse()">
-            <button @click="select(r)">
+            <button :disabled="busy" @click="select(r)" :data-report-id="r.id">
               {{ r.input.date }} · V{{ r.version }}
               {{ r.edited ? "人工编辑" : "生成稿" }}</button
             ><time>{{ r.createdAt }}</time
             ><span>{{ nameOf(r.creatorId) }}</span>
           </li>
         </ul>
-        <button v-if="current" @click="closeCurrent()">返回全部日报</button>
+        <button v-if="current" :disabled="busy" @click="closeCurrent()">
+          返回全部日报
+        </button>
         <p v-if="!history.length" class="muted">暂无已保存日报</p>
       </section>
       <div class="hint-card">

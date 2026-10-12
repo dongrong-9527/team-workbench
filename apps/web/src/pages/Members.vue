@@ -3,6 +3,7 @@ import { ref, computed, watch } from "vue";
 import { state, refreshDirectory, zh } from "../state";
 import { request, type Page } from "../api/client";
 import { field, type FormSpec } from "../forms";
+import { useReadScope } from "../composables/readScope";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
 const auditMember = ref("");
@@ -11,6 +12,7 @@ const members = ref<any[]>([]),
   active = ref(""),
   cursor = ref<string | null>(null),
   error = ref(""),
+  busy = ref(false),
   form = ref<FormSpec>(),
   version = ref<number>(),
   formKey = ref(""),
@@ -20,18 +22,34 @@ const members = ref<any[]>([]),
 const project = computed(() =>
   state.projects.find((p) => p.id === projectId.value),
 );
+const reads = useReadScope(() =>
+  JSON.stringify([projectId.value, active.value]),
+);
 async function load(more = false) {
+  const read = reads.begin(more);
+  if (!read || (more && !cursor.value)) return;
+  if (!more) {
+    members.value = [];
+    cursor.value = null;
+  }
+  busy.value = true;
+  error.value = "";
   try {
     const q = new URLSearchParams();
     if (projectId.value) q.set("projectId", projectId.value);
     if (active.value) q.set("active", active.value);
     if (more && cursor.value) q.set("cursor", cursor.value);
     const p = await request<Page<any>>("/api/members?" + q);
-    members.value = more ? [...members.value, ...p.items] : p.items;
-    cursor.value = p.nextCursor;
-    error.value = "";
+    read.commit(() => {
+      members.value = more ? [...members.value, ...p.items] : p.items;
+      cursor.value = p.nextCursor;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (read.valid()) error.value = (e as Error).message;
+  } finally {
+    read.finish(() => {
+      busy.value = false;
+    });
   }
 }
 watch([projectId, active], () => load(), { immediate: true });
@@ -221,7 +239,12 @@ async function saved(r: any) {
         </tbody>
       </table>
     </div>
-    <button v-if="cursor" class="load-more" @click="load(true)">
+    <button
+      v-if="cursor"
+      class="load-more"
+      :disabled="busy"
+      @click="load(true)"
+    >
       更多成员
     </button>
   </section>

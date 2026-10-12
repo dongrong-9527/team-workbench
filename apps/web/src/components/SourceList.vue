@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { useReadScope } from "../composables/readScope";
 import { request } from "../api/client";
 import { zh, objectPath } from "../state";
 import { actionNames } from "../forms";
@@ -11,19 +12,36 @@ const props = defineProps<{ id: string }>();
 const items = ref<ReportSource[]>([]),
   next = ref<number | null>(null),
   cutoff = ref(0),
-  error = ref("");
+  error = ref(""),
+  busy = ref(false);
+const reads = useReadScope(() => props.id);
 async function load(more = false) {
+  const read = reads.begin(more);
+  if (!read || (more && next.value === null)) return;
+  const id = props.id;
+  if (!more) {
+    items.value = [];
+    next.value = null;
+    cutoff.value = 0;
+  }
+  busy.value = true;
+  error.value = "";
   try {
     const p = await request<SeqPage<ReportSource>>(
-      `/api/reports/${props.id}/sources?limit=20` +
+      `/api/reports/${id}/sources?limit=20` +
         (more ? `&afterSeq=${next.value}&cutoffSeq=${cutoff.value}` : ""),
     );
-    items.value = more ? [...items.value, ...p.items] : p.items;
-    next.value = p.nextAfterSeq;
-    cutoff.value = p.cutoffSeq;
-    error.value = "";
+    read.commit(() => {
+      items.value = more ? [...items.value, ...p.items] : p.items;
+      next.value = p.nextAfterSeq;
+      cutoff.value = p.cutoffSeq;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (read.valid()) error.value = (e as Error).message;
+  } finally {
+    read.finish(() => {
+      busy.value = false;
+    });
   }
 }
 watch(
@@ -38,7 +56,7 @@ watch(
   <p v-if="error" class="error" role="alert">
     {{ error }}<button @click="load()">重试读取来源</button>
   </p>
-  <article v-for="s in items" class="source-item">
+  <article v-for="s in items" :key="s.kind + s.id + s.seq" class="source-item">
     <template v-if="s.kind === 'update'"
       ><strong
         >{{ s.update.authorName }} · {{ s.update.workDate }} ·
@@ -80,5 +98,7 @@ watch(
       ><small>来源版本 {{ s.version }} · #{{ s.seq }}</small></template
     >
   </article>
-  <button v-if="next !== null" @click="load(true)">更多来源</button>
+  <button v-if="next !== null" :disabled="busy" @click="load(true)">
+    更多来源
+  </button>
 </template>

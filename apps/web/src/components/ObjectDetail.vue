@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import { useReadScope } from "../composables/readScope";
 import { useRoute, useRouter } from "vue-router";
 import { request, allPages, allSeqPages } from "../api/client";
 import {
@@ -43,59 +44,65 @@ const plural = computed(() =>
       ? "tasks"
       : "bugs",
 );
+const reads = useReadScope(() => JSON.stringify([props.kind, route.params.id]));
 async function load() {
+  const read = reads.begin();
+  if (!read) return;
+  const kind = props.kind,
+    id = String(route.params.id),
+    collection = plural.value;
   busy.value = true;
   error.value = "";
   try {
-    o.value = await request(`/api/${plural.value}/${route.params.id}`);
-    await Promise.all([
-      loadRelated(),
-      loadUpdates(),
-      refreshProject(o.value.projectId),
+    const object = await request<any>(`/api/${collection}/${id}`);
+    if (!read.valid()) return;
+    const [related, mine] = await Promise.all([
+      loadRelated(object, kind, read.valid),
+      loadUpdates(id, read.valid),
+      refreshProject(object.projectId, read.valid),
     ]);
-    refresh.value++;
+    read.commit(() => {
+      o.value = object;
+      linked.value = related.all;
+      tests.value = related.records;
+      acceptances.value = related.acceptances;
+      revisions.value = related.revisions;
+      parent.value = related.parent;
+      updates.value = mine;
+      refresh.value++;
+    });
   } catch (e) {
-    error.value = (e as Error).message;
+    if (read.valid()) error.value = (e as Error).message;
   } finally {
-    busy.value = false;
+    read.finish(() => {
+      busy.value = false;
+    });
   }
 }
-async function loadRelated() {
-  const [all, records] = await Promise.all([
-    allPages<any>("/api/objects?projectId=" + o.value.projectId),
-    allSeqPages<any>(`/api/tests?kind=${props.kind}&id=${o.value.id}`),
+async function loadRelated(object: any, kind: string, valid: () => boolean) {
+  const [all, records, acceptances, revisions, parent] = await Promise.all([
+    allPages<any>("/api/objects?projectId=" + object.projectId, valid),
+    allSeqPages<any>(`/api/tests?kind=${kind}&id=${object.id}`, valid),
+    kind === "requirement"
+      ? allSeqPages<any>(`/api/requirements/${object.id}/acceptance`, valid)
+      : Promise.resolve([]),
+    kind === "requirement"
+      ? allSeqPages<any>(
+          `/api/requirements/${object.id}/revision-history`,
+          valid,
+        )
+      : Promise.resolve([]),
+    kind === "requirement"
+      ? Promise.resolve(object)
+      : object.requirementId
+        ? request(`/api/requirements/${object.requirementId}`)
+        : Promise.resolve(null),
   ]);
-  linked.value = all;
-  tests.value = records;
-  if (props.kind === "requirement") {
-    acceptances.value = await allSeqPages<any>(
-      `/api/requirements/${o.value.id}/acceptance`,
-    );
-    revisions.value = await allSeqPages<any>(
-      `/api/requirements/${o.value.id}/revision-history`,
-    );
-    parent.value = o.value;
-  } else
-    parent.value = o.value.requirementId
-      ? await request(`/api/requirements/${o.value.requirementId}`)
-      : null;
+  return { all, records, acceptances, revisions, parent };
 }
-async function loadUpdates() {
-  let after = 0,
-    cutoff: number | undefined;
-  const mine: WorkUpdate[] = [];
-  do {
-    const p = await request<SeqPage<WorkUpdate>>(
-      "/api/updates?limit=100&afterSeq=" +
-        after +
-        (cutoff !== undefined ? "&cutoffSeq=" + cutoff : ""),
-    );
-    mine.push(...p.items.filter((u) => u.target.id === o.value.id));
-    cutoff = p.cutoffSeq;
-    if (p.nextAfterSeq === null) break;
-    after = p.nextAfterSeq;
-  } while (true);
-  updates.value = mine;
+async function loadUpdates(id: string, valid: () => boolean) {
+  const all = await allSeqPages<WorkUpdate>("/api/updates", valid);
+  return all.filter((u) => u.target.id === id);
 }
 watch(() => [route.params.id, props.kind], load, { immediate: true });
 const project = computed(() =>
@@ -384,7 +391,13 @@ function split() {
             <p class="body-text">{{ o.definitionOfDone }}</p>
             <p>
               工作类型：{{ zh(o.kind) }} ·
-              {{ o.required ? "需求必需任务" : "非必需任务" }}
+              {{
+                o.requirementId
+                  ? o.required
+                    ? "需求必需任务"
+                    : "非必需任务"
+                  : "独立任务"
+              }}
             </p>
             <p v-if="o.exclusionReason">排除原因：{{ o.exclusionReason }}</p>
             <h3>依赖与修订</h3>
