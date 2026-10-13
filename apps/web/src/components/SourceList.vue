@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AAlert from "ant-design-vue/es/alert";
+import AButton from "ant-design-vue/es/button";
 import { ref, watch } from "vue";
 import { useReadScope } from "../composables/readScope";
 import { request } from "../api/client";
@@ -53,9 +55,11 @@ watch(
 <template>
   <h2>本版本的来源快照</h2>
   <p class="revision">保存时的原始贡献、状态与名称；不会随当前记录变化。</p>
-  <p v-if="error" class="error" role="alert">
-    {{ error }}<button @click="load()">重试读取来源</button>
-  </p>
+  <AAlert v-if="error" type="error" role="alert" show-icon
+    ><template #message>
+      {{ error }}<AButton @click="load()">重试读取来源</AButton>
+    </template></AAlert
+  >
   <article v-for="s in items" :key="s.kind + s.id + s.seq" class="source-item">
     <template v-if="s.kind === 'update'"
       ><strong
@@ -98,7 +102,7 @@ watch(
       ><small>来源版本 {{ s.version }} · #{{ s.seq }}</small></template
     >
   </article>
-  <button v-if="next !== null" :disabled="busy" @click="load(true)">
+  <AButton v-if="next !== null" :disabled="busy" @click="load(true)">
     更多来源
-  </button>
+  </AButton>
 </template>

@@ -73,7 +73,11 @@ test("mobile drawer traps focus, closes on Escape and restores its trigger", asy
   await trigger.click();
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
-  await expect(drawer.locator("xpath=ancestor::div[contains(@class, 'ant-drawer-content')][1]")).toHaveCSS("background-color", "rgb(14, 28, 47)");
+  await expect(
+    drawer.locator(
+      "xpath=ancestor::div[contains(@class, 'ant-drawer-content')][1]",
+    ),
+  ).toHaveCSS("background-color", "rgb(14, 28, 47)");
   await drawer.getByRole("link", { name: "成员管理", exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(drawer.getByRole("link", { name: "账号设置" })).toBeFocused();
@@ -138,4 +142,184 @@ test("all scope filters send existing string values and clear back to an unfilte
   await expect(
     page.getByRole("link", { name: "完善工作更新的字段校验", exact: true }),
   ).toBeVisible();
+});
+
+test("Ant mutation form validates, keeps popup Escape local and restores drafts", async ({
+  page,
+}) => {
+  await login(page, "product");
+  await page.goto("/projects/p1");
+  const trigger = page.getByRole("button", { name: "新建任务", exact: true });
+  await trigger.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator("form")).toHaveClass(/ant-form/);
+  await dialog.getByRole("button", { name: "确认新建任务" }).click();
+  await expect(dialog.getByText("请填写标题", { exact: true })).toBeVisible();
+  await page.getByLabel("标题", { exact: true }).fill("键盘草稿");
+  const owner = page.getByRole("combobox", { name: "主负责人", exact: true });
+  await owner.focus();
+  await owner.press("ArrowDown");
+  await expect(page.locator(".ant-select-dropdown:visible")).toBeVisible();
+  await owner.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(owner).toBeFocused();
+  await owner.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(page.getByLabel("标题", { exact: true })).toHaveValue(
+    "键盘草稿",
+  );
+  await dialog.getByRole("button", { name: "返回并保留草稿" }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test("Ant mutation clear and pending submission retain command and navigation semantics", async ({
+  page,
+}) => {
+  await login(page, "product");
+  await page.goto("/projects");
+  await page
+    .getByRole("link", { name: "星河协作计划 ↗", exact: true })
+    .click();
+  await page.getByRole("button", { name: "新建任务", exact: true }).click();
+  await page.getByLabel("标题", { exact: true }).fill("待提交导航检查");
+  await page.getByLabel("完成标准", { exact: true }).fill("保存一次");
+  await selectOption(page, "主负责人", { value: "dev", label: "陈开发" });
+  const owner = page
+    .getByRole("combobox", { name: "主负责人", exact: true })
+    .locator(
+      'xpath=ancestor::div[contains(@class,"ant-select") and not(contains(@class,"ant-select-selector"))][1]',
+    );
+  await owner.hover();
+  await owner.locator(".ant-select-clear").click();
+  await selectOption(page, "检查人", { value: "tester", label: "周测试" });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const bodies: any[] = [];
+  await page.route("**/api/tasks", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    bodies.push(route.request().postDataJSON());
+    await gate;
+    await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "确认新建任务", exact: true })
+    .dblclick();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).not.toHaveProperty("ownerId");
+  expect(bodies[0].reviewerId).toBe("tester");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "返回并保留草稿" }),
+  ).toBeDisabled();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/projects\/p1$/);
+  release();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/task\//);
+  expect(bodies).toHaveLength(1);
+});
+
+test("Ant auth and definition rules block short passwords and missing custom fields", async ({
+  page,
+}) => {
+  await page.goto("/activate");
+  await page.getByLabel("管理员票据", { exact: true }).fill("a".repeat(43));
+  await page.getByLabel("新密码", { exact: true }).fill("short");
+  await page.getByLabel("确认密码", { exact: true }).fill("short");
+  await page.getByRole("button", { name: "激活账号", exact: true }).click();
+  await expect(page.getByText("至少 12 个字符", { exact: true })).toHaveCount(
+    2,
+  );
+  await login(page, "product");
+  await page.goto("/projects/p1");
+  await page.getByRole("button", { name: "新建需求", exact: true }).click();
+  await page.getByRole("button", { name: "确认新建需求" }).click();
+  await expect(page.getByText("请填写条目说明", { exact: true })).toBeVisible();
+  await page.getByLabel("必需条目", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "确认新建需求" }).click();
+  await expect(page.getByText("请填写排除原因", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("条目编号", { exact: true })).toHaveAttribute(
+    "maxlength",
+    "128",
+  );
+  await page.getByLabel("条目说明", { exact: true }).fill("验".repeat(2001));
+  await expect(page.getByLabel("条目说明", { exact: true })).toHaveValue(
+    "验".repeat(2000),
+  );
+});
+
+test("Ant work date clear blocks submission and keeps YYYY-MM-DD payloads", async ({
+  page,
+}) => {
+  await login(page);
+  await page
+    .getByRole("link", { name: "完善工作更新的字段校验", exact: true })
+    .click();
+  await page.getByRole("button", { name: "写工作更新", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  const date = page.getByLabel("工作日期", { exact: true });
+  const original = await date.inputValue();
+  expect(original).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  await date.click();
+  await expect(
+    page
+      .locator(".ant-picker-dropdown:visible")
+      .getByText("一", { exact: true }),
+  ).toBeVisible();
+  await date.press("Escape");
+  await expect(dialog).toBeVisible();
+  await dialog.locator(".ant-picker").hover();
+  await dialog.locator(".ant-picker-clear").click();
+  await page
+    .getByLabel("今天实际做了什么", { exact: true })
+    .fill("日期选择保持业务日期");
+  await page.getByRole("button", { name: "保存更新", exact: true }).click();
+  await expect(page.getByText("请填写工作日期", { exact: true })).toBeVisible();
+  await date.click();
+  await page
+    .locator(
+      `.ant-picker-dropdown:visible td[title="${original}"] .ant-picker-cell-inner`,
+    )
+    .click();
+  await expect(date).toHaveValue(original);
+  await expect(page.locator(".ant-picker-dropdown:visible")).toHaveCount(0);
+  await expect(
+    page.getByText("请填写工作日期", { exact: true }),
+  ).not.toBeVisible();
+  const sent = page.waitForRequest(
+    (r) => r.url().endsWith("/api/updates") && r.method() === "POST",
+  );
+  if (process.env.WORKBENCH_UI_SCREENSHOTS) {
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/mutation-desktop.png",
+      fullPage: false,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/mutation-mobile.png",
+      fullPage: false,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  if (process.env.WORKBENCH_UI_SCREENSHOTS) {
+    await page
+      .getByRole("button", { name: "保存更新", exact: true })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path:
+        process.env.WORKBENCH_UI_SCREENSHOTS + "/mutation-mobile-actions.png",
+    });
+  }
+  await page.getByRole("button", { name: "保存更新", exact: true }).click();
+  expect((await sent).postDataJSON().workDate).toBe(original);
+  await expect(dialog).toHaveCount(0);
 });

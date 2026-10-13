@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AAlert from "ant-design-vue/es/alert";
+import AButton from "ant-design-vue/es/button";
 import { ref, watch } from "vue";
 import { useReadScope } from "../composables/readScope";
 import { request } from "../api/client";
@@ -102,9 +104,11 @@ const fields: Record<string, string> = {
   <section class="panel panel-body">
     <h2>活动历史</h2>
     <p class="revision">事件按记录顺序追加 · 截止序号 {{ cutoff ?? "—" }}</p>
-    <p v-if="error" class="error" role="alert">
-      {{ error }}<button @click="load()">重新读取历史</button>
-    </p>
+    <AAlert v-if="error" type="error" role="alert" show-icon
+      ><template #message>
+        {{ error }}<AButton @click="load()">重新读取历史</AButton>
+      </template></AAlert
+    >
     <ul class="history">
       <li v-for="e in items" :key="e.seq">
         <time>{{ e.localTime }} · #{{ e.seq }}</time
@@ -135,8 +139,8 @@ const fields: Record<string, string> = {
       </li>
     </ul>
     <p v-if="!items.length && !busy && !error" class="muted">暂无活动记录</p>
-    <button v-if="next !== null" @click="load(true)" :disabled="busy">
+    <AButton v-if="next !== null" @click="load(true)" :disabled="busy">
       更多历史
-    </button>
+    </AButton>
   </section>
 </template>

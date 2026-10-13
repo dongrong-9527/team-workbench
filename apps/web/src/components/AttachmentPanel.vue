@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import UploadOutlined from "@ant-design/icons-vue/UploadOutlined";
+import AAlert from "ant-design-vue/es/alert";
+import AButton from "ant-design-vue/es/button";
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { request } from "../api/client";
 const props = defineProps<{
@@ -115,7 +118,10 @@ onMounted(() => load());
       图片单独上传，不影响工作更新文字的保存。支持 PNG、JPEG、WebP 静态图片。
     </p>
     <div v-if="canUpload" class="toolbar">
-      <label
+      <AButton :disabled="uploading" @click="input?.click()"
+        ><UploadOutlined aria-hidden="true" />选择图片</AButton
+      >
+      <label hidden
         >选择图片
         <input
           ref="input"
@@ -124,26 +130,26 @@ onMounted(() => load());
           :disabled="uploading"
           @change="select"
       /></label>
-      <button :disabled="!file || uploading || loading" @click="upload">
+      <AButton :disabled="!file || uploading || loading" @click="upload">
         {{
           uploading ? "正在上传…" : error && file ? "重试上传图片" : "上传图片"
         }}
-      </button>
+      </AButton>
     </div>
     <p v-if="uploading" role="status">正在校验并保存图片，请稍候…</p>
     <p v-if="notice" role="status" class="success">{{ notice }}</p>
     <p v-if="error" role="alert" class="error">
       {{ error }}
-      <button :disabled="loading" @click="load()">重新读取附件</button>
+      <AButton :disabled="loading" @click="load()">重新读取附件</AButton>
     </p>
     <p v-if="!images.length && !loading">暂无图片附件</p>
     <ul>
       <li v-for="(image, index) in images" :key="image.id">
         图片 {{ index + 1 }} · {{ image.mime }} ·
         {{ Math.ceil(image.size / 1024) }} KiB
-        <button @click="preview = preview === image.id ? '' : image.id">
+        <AButton @click="preview = preview === image.id ? '' : image.id">
           {{ preview === image.id ? "收起图片" : "查看图片" }}
-        </button>
+        </AButton>
         <img
           v-if="preview === image.id"
           :src="`/api/attachments/${image.id}/content`"
@@ -156,8 +162,8 @@ onMounted(() => load());
         />
       </li>
     </ul>
-    <button v-if="next !== null" :disabled="loading" @click="load(true)">
+    <AButton v-if="next !== null" :disabled="loading" @click="load(true)">
       更多图片
-    </button>
+    </AButton>
   </section>
 </template>

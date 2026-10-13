@@ -1469,3 +1469,32 @@ a {
   margin-bottom: 20px;
   color: #dceaf6;
 }
+
+.mutation-modal .ant-form-item {
+  min-width: 0;
+  margin-bottom: 16px;
+}
+.mutation-modal .ant-select,
+.mutation-modal .ant-picker {
+  width: 100%;
+}
+.mutation-modal .check-row > div {
+  min-width: 0;
+  flex: 1;
+}
+.mutation-modal .check-row > .ant-form-item {
+  min-width: 120px;
+  flex: 0 0 140px;
+}
+.mutation-modal .ant-modal-body {
+  overflow-wrap: anywhere;
+}
+.mutation-modal .ant-alert {
+  margin-bottom: 16px;
+}
+.auth-card .ant-alert {
+  margin-bottom: 16px;
+}
+.form-actions {
+  flex-wrap: wrap;
+}

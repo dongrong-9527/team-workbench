@@ -33,8 +33,18 @@ export async function task(
     .getByLabel("完成标准", { exact: true })
     .fill("完成字段校验与边界检查");
   if (owner)
-    await page.getByLabel("主负责人", { exact: true }).selectOption(owner);
-  await page.getByLabel("检查人", { exact: true }).selectOption("tester");
+    await selectOption(page, "主负责人", {
+      value: owner,
+      label: (
+        {
+          dev: "陈开发",
+          tester: "周测试",
+          product: "林产品",
+          dev2: "许前端",
+        } as Record<string, string>
+      )[owner]!,
+    });
+  await selectOption(page, "检查人", { value: "tester", label: "周测试" });
   await submit(page, "确认新建任务");
   await expect(page).toHaveURL(/\/task\//);
   return page.url();
@@ -59,8 +69,17 @@ export async function checks(page: Page, result = "pass") {
   ).toBeVisible();
   for (const select of await page
     .getByRole("combobox", { name: "条目结果", exact: true })
-    .all())
-    await select.selectOption(result);
+    .all()) {
+    await select.focus();
+    await select.press("ArrowDown");
+    await page
+      .locator(".ant-select-dropdown:visible")
+      .getByText(
+        result === "pass" ? "通过" : result === "fail" ? "失败" : "未测",
+        { exact: true },
+      )
+      .click();
+  }
 }
 
 // Staged migration: callers supply both the business value and exact visible label.

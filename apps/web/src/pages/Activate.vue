@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import AButton from "ant-design-vue/es/button";
+import AInput from "ant-design-vue/es/input";
+import AForm from "ant-design-vue/es/form";
+import AAlert from "ant-design-vue/es/alert";
 import { ref, computed } from "vue";
 import { useRoute } from "vue-router";
 import { request } from "../api/client";
@@ -11,6 +15,7 @@ const route = useRoute(),
   success = ref(false),
   busy = ref(false);
 async function submit() {
+  if (busy.value) return;
   if (password.value !== confirm.value) {
     error.value = "两次密码不一致";
     return;
@@ -43,33 +48,51 @@ async function submit() {
     <p v-if="success" class="success" role="status">
       设置成功，请返回登录。所有旧会话已撤销。
     </p>
-    <form v-else @submit.prevent="submit">
-      <label
-        >管理员票据<input
-          v-model="token"
-          required
-          autocomplete="off"
-          maxlength="43" /></label
-      ><label
-        >新密码<input
-          v-model="password"
-          type="password"
-          required
-          minlength="12"
-          autocomplete="new-password" /></label
-      ><label
-        >确认密码<input
-          v-model="confirm"
-          type="password"
-          required
-          minlength="12"
-          autocomplete="new-password"
-      /></label>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button class="primary" :disabled="busy">
+    <AForm
+      v-else
+      :model="{ token, password, confirm }"
+      layout="vertical"
+      :required-mark="false"
+      @finish="submit"
+    >
+      <AForm.Item
+        label="管理员票据"
+        name="token"
+        :rules="[
+          { required: true, message: '请填写管理员票据' },
+          { max: 43, message: '最多 43 个字符' },
+        ]"
+        ><AInput v-model:value="token" autocomplete="off" :maxlength="43"
+      /></AForm.Item>
+      <AForm.Item
+        label="新密码"
+        name="password"
+        :rules="[
+          { required: true, message: '请填写新密码' },
+          { min: 12, message: '至少 12 个字符' },
+        ]"
+        ><AInput.Password v-model:value="password" autocomplete="new-password"
+      /></AForm.Item>
+      <AForm.Item
+        label="确认密码"
+        name="confirm"
+        :rules="[
+          { required: true, message: '请填写确认密码' },
+          { min: 12, message: '至少 12 个字符' },
+        ]"
+        ><AInput.Password v-model:value="confirm" autocomplete="new-password"
+      /></AForm.Item>
+      <AAlert
+        v-if="error"
+        type="error"
+        role="alert"
+        :message="error"
+        show-icon
+      />
+      <AButton type="primary" html-type="submit" :disabled="busy">
         {{ reset ? "确认重置" : "激活账号" }}
-      </button>
-    </form>
+      </AButton>
+    </AForm>
     <RouterLink to="/login">返回登录</RouterLink>
   </section>
 </template>

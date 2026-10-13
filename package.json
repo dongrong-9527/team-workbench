@@ -39,6 +39,7 @@
     "@types/node": "24.19.2",
     "@vitejs/plugin-vue": "6.0.10",
     "ant-design-vue": "4.2.6",
+    "dayjs": "1.11.23",
     "typescript": "7.0.2",
     "typescript-sfc": "npm:typescript@6.0.3",
     "vite": "8.3.4",

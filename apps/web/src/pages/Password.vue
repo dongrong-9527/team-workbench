@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import AButton from "ant-design-vue/es/button";
+import AInput from "ant-design-vue/es/input";
+import AForm from "ant-design-vue/es/form";
+import AAlert from "ant-design-vue/es/alert";
 import { ref } from "vue";
 import { command } from "../api/client";
 import { state } from "../state";
@@ -10,6 +14,7 @@ const currentPassword = ref(""),
   busy = ref(false),
   cmd = command();
 async function submit() {
+  if (busy.value) return;
   if (newPassword.value !== confirm.value) {
     error.value = "两次密码不一致";
     return;
@@ -40,32 +45,54 @@ async function submit() {
     <p v-if="success" class="success" role="status">
       密码已修改。<RouterLink to="/login">重新登录</RouterLink>
     </p>
-    <form v-else @submit.prevent="submit" class="form-grid">
-      <label class="wide"
-        >当前密码<input
-          v-model="currentPassword"
-          type="password"
+    <AForm
+      v-else
+      :model="{ currentPassword, newPassword, confirm }"
+      layout="vertical"
+      :required-mark="false"
+      @finish="submit"
+      class="form-grid"
+    >
+      <AForm.Item
+        label="当前密码"
+        name="currentPassword"
+        :rules="[{ required: true, message: '请填写当前密码' }]"
+        ><AInput.Password
+          v-model:value="currentPassword"
           autocomplete="current-password"
-          required /></label
-      ><label
-        >新密码<input
-          v-model="newPassword"
-          type="password"
+      /></AForm.Item>
+      <AForm.Item
+        label="新密码"
+        name="newPassword"
+        :rules="[
+          { required: true, message: '请填写新密码' },
+          { min: 12, message: '至少 12 个字符' },
+        ]"
+        ><AInput.Password
+          v-model:value="newPassword"
           autocomplete="new-password"
-          minlength="12"
-          required /></label
-      ><label
-        >确认密码<input
-          v-model="confirm"
-          type="password"
-          autocomplete="new-password"
-          minlength="12"
-          required
-      /></label>
-      <p v-if="error" class="error wide" role="alert">{{ error }}</p>
+      /></AForm.Item>
+      <AForm.Item
+        label="确认密码"
+        name="confirm"
+        :rules="[
+          { required: true, message: '请填写确认密码' },
+          { min: 12, message: '至少 12 个字符' },
+        ]"
+        ><AInput.Password v-model:value="confirm" autocomplete="new-password"
+      /></AForm.Item>
+      <AAlert
+        v-if="error"
+        type="error"
+        role="alert"
+        :message="error"
+        show-icon
+      />
       <div class="wide">
-        <button class="primary" :disabled="busy">修改密码</button>
+        <AButton type="primary" html-type="submit" :disabled="busy"
+          >修改密码</AButton
+        >
       </div>
-    </form>
+    </AForm>
   </section>
 </template>

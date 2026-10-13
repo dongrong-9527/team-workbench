@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import AAlert from "ant-design-vue/es/alert";
+import AButton from "ant-design-vue/es/button";
 import { ref, computed, watch } from "vue";
 import { useReadScope } from "../composables/readScope";
 import { useRoute, useRouter } from "vue-router";
@@ -257,9 +259,11 @@ function split() {
 </script>
 <template>
   <p v-if="busy && !o" class="empty" role="status">正在读取详情…</p>
-  <p v-if="error" class="error" role="alert">
-    {{ error }} <button @click="load">重试读取</button>
-  </p>
+  <AAlert v-if="error" type="error" role="alert" show-icon
+    ><template #message>
+      {{ error }} <AButton @click="load">重试读取</AButton>
+    </template></AAlert
+  >
   <template v-if="o"
     ><div class="breadcrumb">
       <RouterLink :to="'/projects/' + o.projectId">{{
@@ -277,7 +281,7 @@ function split() {
           优先级 {{ zh(o.priority) }}
         </p>
       </div>
-      <button @click="load" :disabled="busy">刷新详情</button>
+      <AButton @click="load" :disabled="busy">刷新详情</AButton>
     </div>
     <p v-if="notice" class="success" role="status">{{ notice }}</p>
     <p v-if="project?.archived" class="danger-note">
@@ -317,41 +321,58 @@ function split() {
       </dl>
     </section>
     <div class="toolbar">
-      <button
+      <AButton
         v-for="a in actions"
         @click="open(a)"
-        :class="{
-          primary: ['submit', 'claim', 'acceptance', 'update'].includes(a),
-        }"
+        :type="
+          ['submit', 'claim', 'acceptance', 'update'].includes(a)
+            ? 'primary'
+            : 'default'
+        "
       >
         {{
           kind === "bug" && a === "submit" ? "提交修复" : actionNames[a]
-        }}</button
-      ><button
+        }}</AButton
+      ><AButton
         v-if="kind === 'requirement' && manage && !project?.archived"
         @click="split"
       >
         拆分任务
-      </button>
+      </AButton>
     </div>
     <div class="tabs">
-      <button @click="tab = 'details'" :class="{ primary: tab === 'details' }">
-        工作详情</button
-      ><button @click="tab = 'testing'" :class="{ primary: tab === 'testing' }">
-        测试证据（{{ tests.length }}）</button
-      ><button
+      <AButton
+        @click="tab = 'details'"
+        :type="tab === 'details' ? 'primary' : 'default'"
+      >
+        工作详情</AButton
+      ><AButton
+        @click="tab = 'testing'"
+        :type="tab === 'testing' ? 'primary' : 'default'"
+      >
+        测试证据（{{ tests.length }}）</AButton
+      ><AButton
         v-if="kind === 'requirement'"
         @click="tab = 'acceptance'"
-        :class="{ primary: tab === 'acceptance' }"
+        :type="tab === 'acceptance' ? 'primary' : 'default'"
       >
-        产品验收（{{ acceptances.length }}）</button
-      ><button v-if="kind === 'requirement'" @click="tab = 'revisions'">
-        修订与范围历史</button
-      ><button @click="tab = 'updates'" :class="{ primary: tab === 'updates' }">
+        产品验收（{{ acceptances.length }}）</AButton
+      ><AButton v-if="kind === 'requirement'" @click="tab = 'revisions'">
+        修订与范围历史</AButton
+      ><AButton
+        @click="tab = 'updates'"
+        :type="tab === 'updates' ? 'primary' : 'default'"
+      >
         我的工作更新（{{ updates.length }}）
-      </button>
+      </AButton>
     </div>
-    <AttachmentPanel :key="kind + o.id" :kind="kind" :id="o.id" :version="o.version" :can-upload="!!roles.length && !project?.archived" @uploaded="refresh++" />
+    <AttachmentPanel
+      :key="kind + o.id"
+      :kind="kind"
+      :id="o.id"
+      :version="o.version"
+      :can-upload="!!roles.length && !project?.archived"
+      @uploaded="refresh++" />
     <div class="detail-layout">
       <div>
         <section v-if="tab === 'details'" class="panel panel-body">
@@ -508,12 +529,12 @@ function split() {
             <p>{{ u.done }}</p>
             <p>下一步：{{ u.next || "未填写" }}</p>
             <p>障碍：{{ u.obstacle || "未填写" }}</p>
-            <button
+            <AButton
               v-if="!project?.archived && roles.length"
               @click="open('update', u)"
             >
               更正此条更新
-            </button>
+            </AButton>
           </article>
         </section>
       </div>

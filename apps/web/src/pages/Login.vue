@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import AButton from "ant-design-vue/es/button";
+import AInput from "ant-design-vue/es/input";
+import AForm from "ant-design-vue/es/form";
+import AAlert from "ant-design-vue/es/alert";
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { request, setCsrf } from "../api/client";
@@ -10,6 +14,7 @@ const login = ref(""),
   router = useRouter(),
   route = useRoute();
 async function submit() {
+  if (busy.value) return;
   busy.value = true;
   error.value = "";
   try {
@@ -36,24 +41,37 @@ async function submit() {
     <span class="eyebrow">团队协作工作台</span>
     <h1>让进展清楚可见</h1>
     <p class="muted">登录后，继续今天的协作。</p>
-    <form @submit.prevent="submit">
-      <label
-        >登录账号<input
-          v-model="login"
-          autocomplete="username"
-          required /></label
-      ><label
-        >密码<input
-          v-model="password"
-          type="password"
+    <AForm
+      :model="{ login, password }"
+      layout="vertical"
+      :required-mark="false"
+      @finish="submit"
+    >
+      <AForm.Item
+        label="登录账号"
+        name="login"
+        :rules="[{ required: true, message: '请填写登录账号' }]"
+        ><AInput v-model:value="login" autocomplete="username"
+      /></AForm.Item>
+      <AForm.Item
+        label="密码"
+        name="password"
+        :rules="[{ required: true, message: '请填写密码' }]"
+        ><AInput.Password
+          v-model:value="password"
           autocomplete="current-password"
-          required
-      /></label>
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button class="primary" :disabled="busy">
+      /></AForm.Item>
+      <AAlert
+        v-if="error"
+        type="error"
+        role="alert"
+        :message="error"
+        show-icon
+      />
+      <AButton type="primary" html-type="submit" :disabled="busy">
         {{ busy ? "正在登录…" : "登录工作台" }}
-      </button>
-    </form>
+      </AButton>
+    </AForm>
     <div class="auth-links">
       <RouterLink to="/activate">激活账号</RouterLink
       ><RouterLink to="/reset">使用重置票据</RouterLink>

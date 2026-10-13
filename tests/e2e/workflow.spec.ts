@@ -1,5 +1,13 @@
 import { test, expect } from "./fixtures.js";
-import { login, action, submit, task, evidence, checks } from "./helpers.js";
+import {
+  selectOption,
+  login,
+  action,
+  submit,
+  task,
+  evidence,
+  checks,
+} from "./helpers.js";
 test("task_10 submit checks and interrupted update retain input and retry key", async ({
   page,
 }) => {
@@ -53,7 +61,7 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await page
     .getByLabel("需求细化说明", { exact: true })
     .fill("提交表单必须正确校验");
-  await page.getByLabel("产品验收人", { exact: true }).selectOption("product");
+  await selectOption(page, "产品验收人", { value: "product", label: "林产品" });
   await page
     .getByLabel("条目说明", { exact: true })
     .fill("提交无效值时给出提示");
@@ -70,8 +78,8 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await page
     .getByLabel("完成标准", { exact: true })
     .fill("完成输入校验并提供检查证据");
-  await page.getByLabel("主负责人", { exact: true }).selectOption("dev");
-  await page.getByLabel("检查人", { exact: true }).selectOption("tester");
+  await selectOption(page, "主负责人", { value: "dev", label: "陈开发" });
+  await selectOption(page, "检查人", { value: "tester", label: "周测试" });
   await submit(page, "确认新建任务"); // object detail keeps requirement after split; retrieve linked task through real list
   await page.goto("/projects/p1");
   await page
@@ -147,7 +155,7 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await page.getByLabel("目标版本", { exact: true }).fill("build-1");
   await submit(page, "确认提交产品验收");
   await action(page, "产品验收");
-  await page.getByLabel("条目结果", { exact: true }).selectOption("true");
+  await selectOption(page, "条目结果", { value: "true", label: "通过" });
   await page.getByLabel("操作原因", { exact: true }).fill("全部验收条目通过");
   await submit(page, "确认产品验收");
   await expect(page.getByText("已验收", { exact: true }).first()).toBeVisible();
@@ -177,10 +185,10 @@ test("task_10 product reviewer can check non-development tasks and recorded self
   await page.goto("/projects/p1");
   await action(page, "新建任务");
   await page.getByLabel("标题", { exact: true }).fill("产品检查的测试协调任务");
-  await page.getByLabel("任务类型", { exact: true }).selectOption("test");
+  await selectOption(page, "任务类型", { value: "test", label: "测试" });
   await page.getByLabel("完成标准", { exact: true }).fill("完成测试清单核对");
-  await page.getByLabel("主负责人", { exact: true }).selectOption("tester");
-  await page.getByLabel("检查人", { exact: true }).selectOption("product");
+  await selectOption(page, "主负责人", { value: "tester", label: "周测试" });
+  await selectOption(page, "检查人", { value: "product", label: "林产品" });
   await submit(page, "确认新建任务");
   await expect(page).toHaveURL(/\/task\//);
   const url = page.url();
@@ -199,7 +207,7 @@ test("task_10 product reviewer can check non-development tasks and recorded self
   await expect(page.getByText("已完成", { exact: true }).first()).toBeVisible();
   const devUrl = await task(page, "兼任开发与测试的自测记录");
   await action(page, "指定检查人");
-  await page.getByLabel("检查人", { exact: true }).selectOption("dev");
+  await selectOption(page, "检查人", { value: "dev", label: "陈开发" });
   await submit(page, "确认指定检查人");
   await login(page, "dev");
   await page.goto(devUrl);

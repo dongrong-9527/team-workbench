@@ -55,10 +55,9 @@ test("a full Chinese update field fits the advertised form limit", async ({
   await page.goto(url);
   await action(page, "写工作更新");
   const content = "验".repeat(6000);
-  await expect(page.getByLabel("今天实际做了什么")).toHaveAttribute(
-    "maxlength",
-    "6000",
-  );
+  // Ant TextArea enforces the cap itself instead of exposing native maxlength.
+  await page.getByLabel("今天实际做了什么").fill(content + "验");
+  await expect(page.getByLabel("今天实际做了什么")).toHaveValue(content);
   for (const label of ["今天实际做了什么", "下一步计划", "遇到的障碍"])
     await page.getByLabel(label).fill(content);
   const response = page.waitForResponse(
