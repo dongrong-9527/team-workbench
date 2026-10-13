@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ATag from "ant-design-vue/es/tag";
+import AAvatar from "ant-design-vue/es/avatar";
 import { zh, objectPath, nameOf } from "../state";
 defineProps<{ items: any[] }>();
 </script>
@@ -11,7 +13,7 @@ defineProps<{ items: any[] }>();
     <article v-for="o in items" :key="o.id" class="work-row">
       <div>
         <div class="row-meta">
-          <span class="kind-label">{{ zh(o.objectKind) }}</span
+          <ATag color="blue">{{ zh(o.objectKind) }}</ATag
           ><span>{{ o.projectName }}</span
           ><span class="priority" v-if="o.priority === 'high'">高优先级</span>
         </div>
@@ -20,20 +22,33 @@ defineProps<{ items: any[] }>();
         }}</RouterLink>
         <div class="row-flags">
           <span class="subtle">{{ zh(o.responsibility) }}</span
-          ><span v-if="o.blocked" class="badge warning">阻塞</span
-          ><span v-if="o.flags.inactiveOwner" class="badge warning"
-            >负责人已停用</span
-          ><span v-if="o.flags.pendingRevision" class="badge warning"
-            >修订待处理</span
+          ><ATag v-if="o.blocked" color="orange">阻塞</ATag
+          ><ATag v-if="o.flags.inactiveOwner" color="orange">负责人已停用</ATag
+          ><ATag v-if="o.flags.pendingRevision" color="orange">修订待处理</ATag
           ><span v-if="o.flags.missingUpdate" class="subtle">未填今日更新</span>
         </div>
       </div>
       <div class="owner">
-        <span class="mini-avatar">{{ (o.ownerName ?? "待").slice(0, 1) }}</span
+        <AAvatar :size="28">{{ (o.ownerName ?? "待").slice(0, 1) }}</AAvatar
         >{{ o.ownerName ?? "待认领" }}
       </div>
       <div>
-        <span class="badge" :class="o.state">{{ zh(o.state) }}</span>
+        <ATag
+          :color="
+            ['active', 'fixing'].includes(o.state)
+              ? 'blue'
+              : [
+                    'pending_check',
+                    'pending_verify',
+                    'pending_acceptance',
+                  ].includes(o.state)
+                ? 'gold'
+                : ['done', 'closed', 'accepted'].includes(o.state)
+                  ? 'green'
+                  : undefined
+          "
+          >{{ zh(o.state) }}</ATag
+        >
       </div>
       <div class="next-step">
         {{

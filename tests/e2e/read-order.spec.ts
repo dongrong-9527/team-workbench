@@ -1,5 +1,11 @@
 import { test, expect } from "./fixtures.js";
-import { login, action, submit } from "./helpers.js";
+import {
+  login,
+  action,
+  submit,
+  selectOption,
+  expectSelectedOption,
+} from "./helpers.js";
 
 test("task_10 reversed project responses never replace the selected scope", async ({
   page,
@@ -16,9 +22,15 @@ test("task_10 reversed project responses never replace the selected scope", asyn
     });
     await route.fulfill({ response });
   });
-  await page.getByLabel("全局项目筛选").selectOption("p1");
+  await selectOption(page, "全局项目筛选", {
+    value: "p1",
+    label: "星河协作计划",
+  });
   await held;
-  await page.getByLabel("全局项目筛选").selectOption("p2");
+  await selectOption(page, "全局项目筛选", {
+    value: "p2",
+    label: "青禾服务台",
+  });
   await expect(
     page.getByRole("link", { name: "统一服务台表单的键盘操作", exact: true }),
   ).toBeVisible();
@@ -34,7 +46,10 @@ test("task_10 reversed project responses never replace the selected scope", asyn
   await expect(
     page.getByRole("link", { name: "完善工作更新的字段校验", exact: true }),
   ).toHaveCount(0);
-  await expect(page.getByLabel("全局项目筛选")).toHaveValue("p2");
+  await expectSelectedOption(page, "全局项目筛选", {
+    value: "p2",
+    label: "青禾服务台",
+  });
   await expect(
     page.getByRole("link", { name: "统一服务台表单的键盘操作", exact: true }),
   ).toBeVisible();
@@ -64,9 +79,15 @@ test("task_10 project pagination stays bound to the newer query after reversed r
     });
     await route.fulfill({ response });
   });
-  await page.getByLabel("全局项目筛选").selectOption("p1");
+  await selectOption(page, "全局项目筛选", {
+    value: "p1",
+    label: "星河协作计划",
+  });
   await held;
-  await page.getByLabel("全局项目筛选").selectOption("pagination-order");
+  await selectOption(page, "全局项目筛选", {
+    value: "pagination-order",
+    label: "顺序分页项目",
+  });
   await expect(
     page.getByRole("link", {
       name: "pagination-order 分页事项 01",

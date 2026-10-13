@@ -62,3 +62,41 @@ export async function checks(page: Page, result = "pass") {
     .all())
     await select.selectOption(result);
 }
+
+// Staged migration: callers supply both the business value and exact visible label.
+// Ant selections use the popup the user sees, never private component state.
+export async function selectOption(
+  page: Page,
+  label: string,
+  option: { value: string; label: string },
+) {
+  const control = page.getByRole("combobox", { name: label, exact: true });
+  if (await control.evaluate((el) => el.tagName === "SELECT")) {
+    await control.selectOption(option.value);
+    return;
+  }
+  await control.focus();
+  await control.press("ArrowDown");
+  await page
+    .locator(".ant-select-dropdown:visible")
+    .getByText(option.label, { exact: true })
+    .click();
+}
+
+export async function expectSelectedOption(
+  page: Page,
+  label: string,
+  option: { value: string; label: string },
+) {
+  const control = page.getByRole("combobox", { name: label, exact: true });
+  if (await control.evaluate((el) => el.tagName === "SELECT"))
+    await expect(control).toHaveValue(option.value);
+  else
+    await expect(
+      control
+        .locator(
+          'xpath=ancestor::div[contains(@class,"ant-select") and not(contains(@class,"ant-select-selector"))][1]',
+        )
+        .locator(".ant-select-selection-item"),
+    ).toHaveText(option.label);
+}

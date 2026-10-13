@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.js";
-import { login, action, submit, task } from "./helpers.js";
+import { selectOption, login, action, submit, task } from "./helpers.js";
 test("task_10 two contexts claim one task and show safe conflict without overwrite", async ({
   page,
   browser,
@@ -78,16 +78,18 @@ test("task_10 session expiry retains own draft, identity switch isolates it, mob
   await expect(input).toHaveValue("中文输入尚未保存");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "展开导航" }).click();
   await expect(
-    page.locator(".mobile-account").getByRole("link", { name: "账号设置" }),
+    page.getByRole("dialog").getByRole("link", { name: "账号设置" }),
   ).toBeVisible();
   await page
-    .locator(".mobile-account")
+    .getByRole("dialog")
     .getByRole("link", { name: "账号设置" })
     .click();
   await expect(page.getByLabel("当前密码")).toBeVisible();
+  await page.getByRole("button", { name: "展开导航" }).click();
   await page
-    .locator(".mobile-account")
+    .getByRole("dialog")
     .getByRole("button", { name: "退出登录" })
     .click();
   await expect(page.getByRole("button", { name: "登录工作台" })).toBeVisible();
@@ -273,7 +275,7 @@ test("task_10 read-only viewer cross-project reads, 500 recovery, real paginatio
   await expect(
     page.getByRole("button", { name: "加载更多", exact: true }),
   ).toHaveCount(0);
-  await page.getByLabel("负责人", { exact: true }).selectOption("dev");
+  await selectOption(page, "负责人", { value: "dev", label: "陈开发" });
   await expect(page.locator(".work-row")).toHaveCount(1);
   await page.route("**/api/my-work?*", (route) =>
     route.fulfill({
