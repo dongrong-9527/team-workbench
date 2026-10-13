@@ -85,6 +85,7 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await page
     .getByRole("link", { name: "需求的字段校验任务", exact: true })
     .click();
+  await expect(page).toHaveURL(/\/task\//);
   const taskUrl = page.url(),
     taskId = taskUrl.split("/").at(-1)!;
   await login(page, "dev");

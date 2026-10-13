@@ -101,3 +101,57 @@ test("task_10 failed report generation retains edits and copy only reports await
   await expect(page.getByText("已复制", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("已复制");
 });
+
+for (const navigateAway of [false, true]) {
+  test(`report save-before-regenerate guards busy confirmation${navigateAway ? " and unmount" : ""}`, async ({ page }) => {
+    await login(page);
+    await page.goto("/reports");
+    await page.getByRole("button", { name: "生成新日报", exact: true }).click();
+    await page.getByLabel("日报文本").fill("保留确认期间的人工修改");
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let saves = 0, generations = 0;
+    await page.route("**/api/reports/*/versions", async route => {
+      if (route.request().method() !== "POST") return route.continue();
+      saves++;
+      await held;
+      await route.continue();
+    });
+    page.on("request", request => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/api/reports") generations++;
+    });
+    await page.getByRole("button", { name: "重新生成", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "确认重新生成" });
+    const confirm = dialog.getByRole("button", { name: "保留旧稿并重新生成" });
+    try {
+      // Two synchronous activations exercise the handler guard before Vue renders disabled.
+      await confirm.evaluate(element => { (element as HTMLButtonElement).click(); (element as HTMLButtonElement).click(); });
+      await expect.poll(() => saves).toBe(1);
+      await expect(confirm).toBeDisabled();
+      await expect(dialog.getByRole("button", { name: "返回编辑" })).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeVisible();
+      expect(generations).toBe(0);
+      if (navigateAway) {
+        // Use the actual router link; a document reload would not exercise component unmount.
+        await page.getByRole("link", { name: "我的工作", exact: true }).evaluate(element => (element as HTMLElement).click());
+        await expect(page).toHaveURL(/\/my-work$/);
+      }
+      const saved = page.waitForResponse(response => response.request().method() === "POST" && response.url().endsWith("/versions"));
+      release();
+      expect((await saved).status()).toBe(200);
+      if (navigateAway) {
+        await expect(page.getByRole("heading", { name: "我的工作", exact: true })).toBeVisible();
+        await expect(dialog).toHaveCount(0);
+        expect(generations).toBe(0);
+      } else {
+        await expect(dialog).toHaveCount(0);
+        await expect(page.getByRole("status")).toContainText("已生成新版本");
+        expect(generations).toBe(1);
+        await page.getByRole("button", { name: /V2 人工编辑/ }).click();
+        await expect(page.getByLabel("日报文本")).toHaveValue("保留确认期间的人工修改");
+      }
+      expect(saves).toBe(1);
+    } finally { release(); }
+  });
+}

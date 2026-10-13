@@ -117,7 +117,7 @@ watch(
     <div v-for="(s, i) in stats" :key="s.name" class="metric">
       <span>{{ s.name }}</span
       ><strong>{{ s.value.toString().padStart(2, "0") }}</strong
-      ><span class="metric-mark"
+      ><span class="metric-mark" aria-hidden="true"
         ><component
           :is="
             [

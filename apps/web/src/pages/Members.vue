@@ -212,27 +212,36 @@ async function saved(r: any) {
     <p v-if="!state.member?.isAdmin" class="panel-body muted">
       你可查看安全成员目录，管理动作仅向管理员开放。
     </p>
-    <ATable
-      :data-source="members"
-      row-key="id"
-      :pagination="false"
-      :scroll="{ x: 700 }"
-      :columns="[
-        { key: 'member', title: '成员' },
-        { key: 'active', title: '状态' },
-        { key: 'roles', title: '项目角色' },
-        ...(state.member?.isAdmin
-          ? [{ key: 'actions', title: '管理操作' }]
-          : []),
-      ]"
+    <p class="member-scroll-hint muted">左右滑动可查看完整成员信息与操作</p>
+    <!-- Keep scrolling outside Ant Table: its empty-row width measurement can
+         resize its observed ancestor during the same browser layout. -->
+    <div
+      class="member-table-scroll"
+      role="region"
+      aria-label="成员目录，可横向滚动"
+      tabindex="0"
     >
-      <template #bodyCell="{ column, record: m }">
-        <template v-if="column.key === 'member'"
-          ><AButton type="link" @click="auditMember = m.id">{{
-            m.displayName
-          }}</AButton>
-          <div class="revision">
-            {{ m.isAdmin ? "平台管理员" : "平台成员" }}
+      <ATable
+        :data-source="members"
+        row-key="id"
+        :pagination="false"
+        style="min-width: 700px"
+        :columns="[
+          { key: 'member', title: '成员' },
+          { key: 'active', title: '状态' },
+          { key: 'roles', title: '项目角色' },
+          ...(state.member?.isAdmin
+            ? [{ key: 'actions', title: '管理操作' }]
+            : []),
+        ]"
+      >
+        <template #bodyCell="{ column, record: m }">
+          <template v-if="column.key === 'member'"
+            ><AButton type="link" @click="auditMember = m.id">{{
+              m.displayName
+            }}</AButton>
+            <div class="revision">
+              {{ m.isAdmin ? "平台管理员" : "平台成员" }}
           </div></template
         >
         <template v-else-if="column.key === 'active'"
@@ -263,6 +272,7 @@ async function saved(r: any) {
         >
       </template></ATable
     >
+    </div>
     <AButton
       v-if="cursor"
       class="load-more"

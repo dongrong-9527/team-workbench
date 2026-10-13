@@ -674,3 +674,77 @@ test("report UTF-16 limit retains oversized drafts and sends the exact accepted 
   expect(sent[0].text.length).toBe(200000);
   await expect(editor).toHaveValue(boundary);
 });
+
+
+test("current-route mobile navigation closes and restores focus", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const trigger = page.getByRole("button", { name: "展开导航" });
+  await trigger.click();
+  await page.getByRole("dialog").getByRole("link", { name: "我的工作", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+  await expect(page).toHaveURL(/\/my-work$/);
+});
+
+test("workbench metric icons are decorative in the accessibility tree", async ({ page }) => {
+  await login(page);
+  await expect(page.locator(".metric")).toHaveCount(4);
+  await expect(page.locator(".metrics").getByRole("img")).toHaveCount(0);
+});
+
+test("initial workbench defers unrelated route modules until navigation", async ({ page }) => {
+  const pages: string[] = [];
+  page.on("request", request => {
+    if (request.url().includes("/src/pages/")) pages.push(request.url());
+  });
+  await login(page);
+  expect(pages.some(url => /\/(Reports|Members|Projects)\.vue/.test(url))).toBe(false);
+  await page.getByRole("link", { name: "日报", exact: true }).click();
+  await expect(page.getByRole("button", { name: "生成新日报", exact: true })).toBeVisible();
+  expect(pages.some(url => url.includes("/Reports.vue"))).toBe(true);
+});
+
+test("member table handles delayed empty layout and mobile keyboard scrolling", async ({ page }) => {
+  await login(page, "admin");
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/members?*", async route => { if (new URL(route.request().url()).searchParams.has("projectId")) await held; await route.continue(); });
+  try {
+    await page.goto("/members");
+    await expect(page.getByRole("columnheader", { name: "成员", exact: true })).toBeVisible();
+    // Let the empty layout render before releasing its data, reproducing cold route loading.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    release();
+    await expect(page.getByRole("row").filter({ hasText: "演示管理员" })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const table = page.getByRole("region", { name: "成员目录，可横向滚动" });
+    await expect(table).toBeVisible();
+    await expect(page.getByText("左右滑动可查看完整成员信息与操作")).toBeVisible();
+    await table.focus();
+    await table.press("ArrowRight");
+    await expect.poll(() => table.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally { release(); }
+});
+
+for (const path of ["/activate", "/reset"]) {
+  test(`cold ${path} navigation preserves the public route while its module loads`, async ({ page }) => {
+    await page.route("**/src/pages/Activate.vue", async route => {
+      // Model a slower route chunk than the unauthenticated session response.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await route.continue();
+    });
+    await page.goto(path + "?ticket=synthetic-route-only");
+    await expect(page.getByLabel("管理员票据")).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe(path);
+    expect(new URL(page.url()).searchParams.get("ticket")).toBe("synthetic-route-only");
+  });
+}
+
+
+test("cold private navigation redirects unauthenticated users to the login form", async ({ page }) => {
+  await page.goto("/reports");
+  await expect(page.getByRole("button", { name: "登录工作台" })).toBeVisible();
+  await expect(page).toHaveURL(/\/login$/);
+});

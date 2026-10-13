@@ -1384,3 +1384,19 @@ a {
 .ant-table-wrapper {
   min-width: 0;
 }
+
+.member-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.member-scroll-hint {
+  display: none;
+}
+@media (max-width: 700px) {
+  .member-scroll-hint {
+    display: block;
+    margin: 0;
+    padding: 0 16px 12px;
+    font-size: 12px;
+  }
+}

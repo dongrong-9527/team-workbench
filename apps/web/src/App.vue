@@ -158,7 +158,7 @@ async function logout() {
                 >关闭</AButton
               >
             </div>
-            <nav aria-label="移动主导航">
+            <nav aria-label="移动主导航" @click="navOpen = false">
               <RouterLink
                 v-for="item in navigation"
                 :key="item.path"

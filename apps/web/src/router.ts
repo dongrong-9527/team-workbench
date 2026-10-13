@@ -1,14 +1,14 @@
 import { createRouter, createWebHistory } from "vue-router";
-import Login from "./pages/Login.vue";
-import MyWork from "./pages/MyWork.vue";
-import Projects from "./pages/Projects.vue";
-import Task from "./pages/Task.vue";
-import Requirement from "./pages/Requirement.vue";
-import Bug from "./pages/Bug.vue";
-import Reports from "./pages/Reports.vue";
-import Members from "./pages/Members.vue";
-import Activate from "./pages/Activate.vue";
-import Password from "./pages/Password.vue";
+const Login = () => import("./pages/Login.vue");
+const MyWork = () => import("./pages/MyWork.vue");
+const Projects = () => import("./pages/Projects.vue");
+const Task = () => import("./pages/Task.vue");
+const Requirement = () => import("./pages/Requirement.vue");
+const Bug = () => import("./pages/Bug.vue");
+const Reports = () => import("./pages/Reports.vue");
+const Members = () => import("./pages/Members.vue");
+const Activate = () => import("./pages/Activate.vue");
+const Password = () => import("./pages/Password.vue");
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
