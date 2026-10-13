@@ -1,5 +1,12 @@
 import { test, expect } from "./fixtures.js";
-import { selectOption, login, action, submit, task } from "./helpers.js";
+import {
+  expectSelectedOption,
+  selectOption,
+  login,
+  action,
+  submit,
+  task,
+} from "./helpers.js";
 test("task_10 two contexts claim one task and show safe conflict without overwrite", async ({
   page,
   browser,
@@ -136,7 +143,11 @@ test("task_10 admin creation activation password reset and deactivation use actu
   async function refreshMember() {
     const previousRow = await row.elementHandle();
     expect(previousRow).not.toBeNull();
-    const projectId = await page.getByLabel("授权项目").inputValue();
+    await expectSelectedOption(page, "授权项目", {
+      value: "p1",
+      label: "星河协作计划",
+    });
+    const projectId = "p1";
     const refreshed = page.waitForResponse((r) => {
       const url = new URL(r.url());
       return (
@@ -218,7 +229,7 @@ test("task_10 revoked role hides actions after refresh and old open form is reje
   await action(p, "开始处理");
   await login(page, "admin");
   await page.goto("/members");
-  await page.getByLabel("授权项目").selectOption("p2");
+  await selectOption(page, "授权项目", { value: "p2", label: "青禾服务台" });
   const row = page.getByRole("row").filter({ hasText: "许前端" });
   await row.getByRole("button", { name: "授权", exact: true }).click();
   await page

@@ -12,35 +12,7 @@
 body {
   margin: 0;
 }
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-button:not([class*="ant-"]),
-.button {
-  border: 1px solid #dce3ed;
-  background: white;
-  color: #34445e;
-  padding: 8px 14px;
-  border-radius: 7px;
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-button:not([class*="ant-"]):hover,
-.button:hover {
-  border-color: #7595c7;
-  background: #f4f7ff;
-}
-button:not([class*="ant-"]):disabled {
-  opacity: 0.55;
-  cursor: wait;
-}
+
 a {
   color: #285dbb;
   text-decoration: none;
@@ -56,23 +28,8 @@ textarea:focus-visible {
   outline: 3px solid #94b8f2;
   outline-offset: 2px;
 }
-input:not([class*="ant-"]),
-textarea:not([class*="ant-"]),
-select {
-  border: 1px solid #d6deea;
-  border-radius: 7px;
-  padding: 9px 11px;
-  background: #fff;
-  color: #24334b;
-  min-width: 0;
-  max-width: 100%;
-}
-textarea {
-  min-height: 105px;
-  resize: vertical;
-  line-height: 1.7;
-}
-label {
+
+label:not(.ant-checkbox-wrapper):not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -104,19 +61,7 @@ p {
 .subtle {
   color: #7a8598;
 }
-.primary {
-  background: #3565c4;
-  color: white;
-  border-color: #3565c4;
-}
-.primary:hover {
-  background: #2b55ac;
-  color: white;
-}
-.danger {
-  color: #a33131;
-  border-color: #e6c4c4;
-}
+
 .demo-banner {
   background: #edf3fd;
   border-bottom: 1px solid #dfe8f7;
@@ -253,12 +198,7 @@ p {
   font-size: 11px;
   gap: 16px;
 }
-.global-project select {
-  border: none;
-  font-size: 13px;
-  font-weight: 600;
-  width: 165px;
-}
+
 .search {
   margin-left: auto;
   display: flex;
@@ -379,11 +319,7 @@ main#main {
   color: #8a97ab;
   min-width: 135px;
 }
-.filters select {
-  font-size: 11px;
-  padding: 7px 10px;
-  color: #5c6c83;
-}
+
 .list-head,
 .work-row {
   display: grid;
@@ -636,10 +572,6 @@ footer {
   border: 1px solid #e4eaf2;
   border-radius: 7px;
 }
-.check-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-}
 .history {
   list-style: none;
   padding: 0;
@@ -664,16 +596,6 @@ footer {
   flex-wrap: wrap;
   gap: 10px;
 }
-.chips label {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  background: #f6f8fc;
-  border: 1px solid #e2e7f1;
-  border-radius: 7px;
-  padding: 7px 10px;
-  font-size: 12px;
-}
 .tabs {
   display: flex;
   gap: 8px;
@@ -688,51 +610,13 @@ footer {
 .table-scroll {
   overflow: auto;
 }
-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 12px;
-}
-th,
-td {
-  padding: 14px 17px;
-  text-align: left;
-  border-bottom: 1px solid #e8edf4;
-}
-th {
-  color: #8593a8;
-  font-weight: 500;
-  background: #f7f9fc;
-}
+
 .breadcrumb {
   font-size: 11px;
   color: #8d9aae;
   margin-bottom: 15px;
 }
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: #1c2e4c66;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  z-index: 10;
-}
-.dialog {
-  max-width: 850px;
-  width: 100%;
-  max-height: 90vh;
-  overflow: auto;
-  background: #fff;
-  border-radius: 13px;
-  padding: 27px;
-}
-.dialog h2 {
-  margin-bottom: 6px;
-}
-.dialog p {
-  font-size: 12px;
-}
+
 .revision {
   font-size: 11px;
   color: #93a0b4;
@@ -861,11 +745,7 @@ th {
   .global-project {
     font-size: 10px;
   }
-  .global-project select {
-    width: 120px;
-    font-size: 11px;
-    padding: 5px;
-  }
+
   .search {
     width: 100%;
     order: 2;
@@ -957,19 +837,7 @@ th {
   .panel-body {
     padding: 17px;
   }
-  .dialog-backdrop {
-    padding: 10px;
-  }
-  .dialog {
-    padding: 20px;
-    max-height: 94vh;
-  }
-  .dialog .form-actions {
-    position: sticky;
-    bottom: -20px;
-    background: white;
-    padding: 12px 0;
-  }
+
   .check-row {
     grid-template-columns: 1fr;
   }
@@ -1015,7 +883,6 @@ th {
 .page-heading p,
 .section-heading p,
 .filters label,
-.filters select,
 .row-meta,
 .row-flags,
 .owner,
@@ -1108,9 +975,7 @@ th {
 .demo-banner {
   font-size: 12px;
 }
-.global-project select {
-  width: 160px;
-}
+
 .work-row {
   grid-template-columns: minmax(210px, 1fr) 120px 115px 135px;
 }
@@ -1140,9 +1005,7 @@ th {
     width: 100%;
     justify-content: space-between;
   }
-  .global-project select {
-    width: 210px;
-  }
+
   .mobile-account {
     margin-left: 0;
   }
@@ -1155,9 +1018,7 @@ th {
   .toolbar button {
     font-size: 12px;
   }
-  .filters select {
-    font-size: 12px;
-  }
+
   .page-heading p {
     font-size: 12px;
   }
@@ -1166,12 +1027,6 @@ th {
   }
 }
 
-.form-grid > div > input:not([type="checkbox"]),
-.form-grid > div > textarea,
-.form-grid > div > select {
-  width: 100%;
-  margin-top: 6px;
-}
 .form-grid > div > label {
   font-size: 12px;
 }
@@ -1497,4 +1352,35 @@ a {
 }
 .form-actions {
   flex-wrap: wrap;
+}
+
+/* Remaining page controls use the shared Ant theme; these rules are layout only. */
+.form-grid .ant-picker {
+  width: 100%;
+}
+.ant-alert {
+  margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.page-heading > div,
+.card-grid > *,
+.form-grid > *,
+.history .ant-btn {
+  min-width: 0;
+}
+.project-card,
+.history .ant-btn {
+  overflow-wrap: anywhere;
+}
+.history .ant-btn {
+  white-space: normal;
+  height: auto;
+  text-align: left;
+}
+.chips .ant-checkbox-wrapper {
+  margin-inline-start: 0;
+  white-space: normal;
+}
+.ant-table-wrapper {
+  min-width: 0;
 }

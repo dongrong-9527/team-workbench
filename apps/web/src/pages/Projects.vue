@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import ASelect from "ant-design-vue/es/select";
+import ATag from "ant-design-vue/es/tag";
+import AButton from "ant-design-vue/es/button";
+import AAlert from "ant-design-vue/es/alert";
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { state, zh, refreshDirectory, refreshProject } from "../state";
@@ -170,23 +174,31 @@ async function saved(result: any) {
         }}
       </p>
     </div>
-    <button
+    <AButton
       v-if="state.member?.isAdmin && !overview"
-      class="primary"
+      type="primary"
       @click="projectAction('create')"
     >
       新建项目
-    </button>
+    </AButton>
   </div>
-  <p v-if="notice" class="success" role="status">{{ notice }}</p>
-  <p v-if="error" class="error" role="alert">
-    {{ error }}<button @click="load()">重试加载</button>
-  </p>
+  <AAlert
+    v-if="notice"
+    :message="notice"
+    type="success"
+    role="status"
+    show-icon
+  />
+  <AAlert v-if="error" type="error" show-icon role="alert"
+    ><template #message>
+      {{ error }}<AButton @click="load()">重试加载</AButton>
+    </template></AAlert
+  >
   <template v-if="!overview && !route.query.q"
     ><div class="tabs">
-      <button @click="archive = 'active'">进行中的项目</button
-      ><button @click="archive = 'archived'">已归档</button
-      ><button @click="archive = 'all'">全部项目</button>
+      <AButton @click="archive = 'active'">进行中的项目</AButton
+      ><AButton @click="archive = 'archived'">已归档</AButton
+      ><AButton @click="archive = 'all'">全部项目</AButton>
     </div>
     <div class="card-grid">
       <section v-for="p in projects" class="panel project-card">
@@ -196,43 +208,43 @@ async function saved(result: any) {
         </h2>
         <p>{{ p.description || "暂无项目简介" }}</p>
         <div class="chips">
-          <span v-for="r in p.myRoles" class="badge"
-            >{{ zh(r.role) }}{{ r.lead ? "负责人" : "" }}</span
-          ><span v-if="!p.myRoles.length" class="badge">可阅读与生成日报</span>
+          <ATag v-for="r in p.myRoles"
+            >{{ zh(r.role) }}{{ r.lead ? "负责人" : "" }}</ATag
+          ><ATag v-if="!p.myRoles.length">可阅读与生成日报</ATag>
         </div>
       </section>
     </div></template
   ><template v-if="overview"
     ><div class="toolbar">
-      <button
+      <AButton
         v-if="canManage && !overview.project.archived"
-        class="primary"
+        type="primary"
         @click="create('requirement')"
       >
-        新建需求</button
-      ><button
+        新建需求</AButton
+      ><AButton
         v-if="canManage && !overview.project.archived"
         @click="create('task')"
       >
-        新建任务</button
-      ><button
+        新建任务</AButton
+      ><AButton
         v-if="canCreateBug && !overview.project.archived"
         @click="create('bug')"
       >
-        新建 Bug</button
+        新建 Bug</AButton
       ><template v-if="state.member?.isAdmin"
-        ><button
+        ><AButton
           v-if="!overview.project.archived"
           @click="projectAction('rename')"
         >
-          重命名项目</button
-        ><button
+          重命名项目</AButton
+        ><AButton
           @click="
             projectAction(overview.project.archived ? 'restore' : 'archive')
           "
         >
           {{ overview.project.archived ? "恢复项目" : "归档项目" }}
-        </button></template
+        </AButton></template
       >
     </div>
     <div class="metrics">
@@ -253,13 +265,15 @@ async function saved(result: any) {
       </div>
     </div>
     <div class="chips">
-      <span v-for="c in overview.counts" class="badge"
-        >{{ zh(c.kind) }} · {{ zh(c.state) }} {{ c.count }}</span
+      <ATag v-for="c in overview.counts"
+        >{{ zh(c.kind) }} · {{ zh(c.state) }} {{ c.count }}</ATag
       >
     </div>
-    <p v-if="overview.project.archived" class="danger-note">
-      项目已归档，保留只读历史；管理员可恢复。
-    </p></template
+    <AAlert v-if="overview.project.archived" type="warning" show-icon
+      ><template #message>
+        项目已归档，保留只读历史；管理员可恢复。
+      </template></AAlert
+    ></template
   >
   <section class="panel" style="margin-top: 20px">
     <div class="section-heading">
@@ -269,28 +283,50 @@ async function saved(result: any) {
         </h2>
         <p>先看状态与责任人，再进入详情推进工作。</p>
       </div>
-      <button @click="load()" :disabled="busy">刷新列表</button>
+      <AButton @click="load()" :disabled="busy">刷新列表</AButton>
     </div>
     <div class="filters">
-      <label
-        >类型<select aria-label="工作类型" v-model="kind">
-          <option value="">全部类型</option>
-          <option value="requirement">需求</option>
-          <option value="task">任务</option>
-          <option value="bug">Bug</option>
-        </select></label
-      ><label
-        >负责人<select aria-label="负责人" v-model="owner">
-          <option value="">全部负责人</option>
-          <option v-for="m in state.members" :value="m.id">
-            {{ m.displayName }}
-          </option>
-        </select></label
-      ><label
-        >状态<select aria-label="状态" v-model="status">
-          <option value="">全部状态</option>
-          <option
-            v-for="s in [
+      <div>
+        <label for="project-kind">工作类型</label
+        ><ASelect
+          id="project-kind"
+          :value="kind"
+          @update:value="kind = typeof $event === 'string' ? $event : ''"
+          allow-clear
+          :options="[
+            { value: '', label: '全部类型' },
+            { value: 'requirement', label: '需求' },
+            { value: 'task', label: '任务' },
+            { value: 'bug', label: 'Bug' },
+          ]"
+        />
+      </div>
+      <div>
+        <label for="project-owner">负责人</label
+        ><ASelect
+          id="project-owner"
+          :value="owner"
+          @update:value="owner = typeof $event === 'string' ? $event : ''"
+          allow-clear
+          :options="[
+            { value: '', label: '全部负责人' },
+            ...state.members.map((m) => ({
+              value: m.id,
+              label: m.displayName,
+            })),
+          ]"
+        />
+      </div>
+      <div>
+        <label for="project-status">状态</label
+        ><ASelect
+          id="project-status"
+          :value="status"
+          @update:value="status = typeof $event === 'string' ? $event : ''"
+          allow-clear
+          :options="[
+            { value: '', label: '全部状态' },
+            ...[
               'draft',
               'refining',
               'pending',
@@ -306,33 +342,38 @@ async function saved(result: any) {
               'accepted',
               'cancelled',
               'rejected',
-            ]"
-            :value="s"
-          >
-            {{ zh(s) }}
-          </option>
-        </select></label
-      ><label
-        >阻塞<select aria-label="阻塞" v-model="blocked">
-          <option value="">全部</option>
-          <option value="true">仅阻塞</option>
-          <option value="false">未阻塞</option>
-        </select></label
-      >
+            ].map((value) => ({ value, label: zh(value) })),
+          ]"
+        />
+      </div>
+      <div>
+        <label for="project-blocked">阻塞</label
+        ><ASelect
+          id="project-blocked"
+          :value="blocked"
+          @update:value="blocked = typeof $event === 'string' ? $event : ''"
+          allow-clear
+          :options="[
+            { value: '', label: '全部' },
+            { value: 'true', label: '仅阻塞' },
+            { value: 'false', label: '未阻塞' },
+          ]"
+        />
+      </div>
     </div>
     <p v-if="busy" class="empty" role="status">正在读取…</p>
     <WorkList v-else :items="items" />
     <p v-if="!busy && !items.length && !error" class="empty">
       当前条件下没有工作事项
     </p>
-    <button
+    <AButton
       v-if="cursor"
       :disabled="busy"
       @click="load(true)"
       class="load-more"
     >
       加载更多
-    </button>
+    </AButton>
   </section>
   <HistoryList
     v-if="overview"

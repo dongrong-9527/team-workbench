@@ -8,6 +8,8 @@ test("attachment retry keeps its key, failed upload preserves valid text save, a
   await login(page);
   await page.goto(url);
   const panel = page.getByRole("region", { name: "图片附件" });
+  await expect(panel.getByLabel("选择图片")).toHaveCount(1);
+  await expect(panel.getByLabel("选择图片")).toBeHidden();
   const png = await sharp({
     create: { width: 8, height: 8, channels: 3, background: "#5577aa" },
   })

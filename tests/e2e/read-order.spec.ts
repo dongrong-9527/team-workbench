@@ -141,7 +141,10 @@ test("task_10 member project roles ignore an older pending project response", as
   });
   const id = (await projectLink.getAttribute("href"))!.split("/").at(-1)!;
   await page.goto("/members");
-  await page.getByLabel("授权项目").selectOption(id);
+  await selectOption(page, "授权项目", {
+    value: id,
+    label: "目录竞态的合成项目",
+  });
   await expect(
     page.getByRole("row").filter({
       has: page.getByRole("button", { name: "陈开发", exact: true }),
@@ -158,9 +161,12 @@ test("task_10 member project roles ignore an older pending project response", as
     });
     await route.fulfill({ response });
   });
-  await page.getByLabel("授权项目").selectOption("p1");
+  await selectOption(page, "授权项目", { value: "p1", label: "星河协作计划" });
   await held;
-  await page.getByLabel("授权项目").selectOption(id);
+  await selectOption(page, "授权项目", {
+    value: id,
+    label: "目录竞态的合成项目",
+  });
   await expect(
     page.getByRole("row").filter({
       has: page.getByRole("button", { name: "陈开发", exact: true }),
@@ -180,7 +186,10 @@ test("task_10 member project roles ignore an older pending project response", as
       has: page.getByRole("button", { name: "陈开发", exact: true }),
     }),
   ).not.toContainText("后端负责人");
-  await expect(page.getByLabel("授权项目")).toHaveValue(id);
+  await expectSelectedOption(page, "授权项目", {
+    value: id,
+    label: "目录竞态的合成项目",
+  });
 });
 test("task_10 immutable report sources ignore an older version response", async ({
   page,

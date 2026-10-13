@@ -16,6 +16,12 @@ test("task_10 report source versions editing regeneration clipboard denial and i
   await expect(
     page.getByRole("dialog", { name: "确认重新生成" }),
   ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "重新生成", exact: true }),
+  ).toBeFocused();
+  await page.getByRole("button", { name: "重新生成", exact: true }).click();
   await page.getByRole("button", { name: "返回编辑", exact: true }).click();
   await expect(page.getByLabel("日报文本")).toHaveValue(
     old + "\n人工核对说明：仅为云端演示",
@@ -43,6 +49,16 @@ test("task_10 report source versions editing regeneration clipboard denial and i
   await expect(
     page.getByRole("button", { name: "全选文本，手动复制" }),
   ).toBeVisible();
+  const selection = await page.getByLabel("日报文本").evaluate((element) => {
+    const text = element as HTMLTextAreaElement;
+    return {
+      start: text.selectionStart,
+      end: text.selectionEnd,
+      length: text.value.length,
+    };
+  });
+  expect(selection.start).toBe(0);
+  expect(selection.end).toBe(selection.length);
   await page.getByRole("button", { name: /查看来源/ }).click();
   await expect(
     page.getByRole("heading", { name: "本版本的来源快照" }),

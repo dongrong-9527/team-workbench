@@ -395,3 +395,282 @@ test("nested supplementary-character bounds block requests and restored drafts u
   expect((await response).status()).toBe(200);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
+
+test("report calendar keeps local date through clear and reselection in non-UTC browser", async ({
+  browser,
+  observeContext,
+}) => {
+  const context = await browser.newContext({
+    timezoneId: "America/Los_Angeles",
+    ignoreHTTPSErrors: true,
+  });
+  await observeContext(context);
+  const page = await context.newPage();
+  await login(page);
+  await page.goto("/reports");
+  const date = page.getByLabel("报告日期", { exact: true });
+  const original = await date.inputValue();
+  await expect(
+    date.locator('xpath=ancestor::div[contains(@class,"ant-picker")][1]'),
+  ).toHaveCount(1);
+  const picker = page.locator(".ant-picker");
+  await picker.hover();
+  await picker.locator(".ant-picker-clear").click();
+  await expect(
+    page.getByRole("button", { name: "生成新日报", exact: true }),
+  ).toBeDisabled();
+  await date.click();
+  await page
+    .locator(
+      `.ant-picker-dropdown:visible td[title="${original}"] .ant-picker-cell-inner`,
+    )
+    .click();
+  await expect(date).toHaveValue(original);
+  const sent = page.waitForRequest(
+    (r) => r.url().endsWith("/api/reports") && r.method() === "POST",
+  );
+  await page.getByRole("button", { name: "生成新日报", exact: true }).click();
+  expect((await sent).postDataJSON().date).toBe(original);
+  await expect(page.getByLabel("日报文本", { exact: true })).toBeVisible();
+  if (process.env.WORKBENCH_UI_SCREENSHOTS) {
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/reports-desktop.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/reports-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+  await context.close();
+});
+
+test("project and member filters clear without changing payload types", async ({
+  page,
+}) => {
+  await login(page, "admin");
+  await page.goto("/projects/p1");
+  for (const filter of [
+    { name: "工作类型", value: "task", label: "任务", key: "kind" },
+    { name: "负责人", value: "dev", label: "陈开发", key: "ownerId" },
+    { name: "状态", value: "active", label: "进行中", key: "state" },
+    { name: "阻塞", value: "false", label: "未阻塞", key: "blocked" },
+  ]) {
+    const selected = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === "/api/objects" &&
+        new URL(r.url()).searchParams.get(filter.key) === filter.value,
+    );
+    await selectOption(page, filter.name, filter);
+    expect((await selected).status()).toBe(200);
+    const container = page
+      .getByRole("combobox", { name: filter.name, exact: true })
+      .locator(
+        'xpath=ancestor::div[contains(@class,"ant-select") and not(contains(@class,"ant-select-selector"))][1]',
+      );
+    const cleared = page.waitForResponse(
+      (r) =>
+        new URL(r.url()).pathname === "/api/objects" &&
+        !new URL(r.url()).searchParams.has(filter.key),
+    );
+    await container.hover();
+    await container.locator(".ant-select-clear").click();
+    expect((await cleared).status()).toBe(200);
+  }
+  if (process.env.WORKBENCH_UI_SCREENSHOTS) {
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/projects-desktop.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/projects-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+  }
+  await page.goto("/members");
+  await selectOption(page, "成员状态", { value: "false", label: "已停用" });
+  await expect(
+    page.getByRole("row").filter({ hasText: "叶归档" }),
+  ).toBeVisible();
+  const container = page
+    .getByRole("combobox", { name: "成员状态", exact: true })
+    .locator(
+      'xpath=ancestor::div[contains(@class,"ant-select") and not(contains(@class,"ant-select-selector"))][1]',
+    );
+  const cleared = page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname === "/api/members" &&
+      !new URL(r.url()).searchParams.has("active"),
+  );
+  await container.hover();
+  await container.locator(".ant-select-clear").click();
+  expect((await cleared).status()).toBe(200);
+  await expect(
+    page.getByRole("row").filter({ hasText: "陈开发" }),
+  ).toBeVisible();
+  if (process.env.WORKBENCH_UI_SCREENSHOTS) {
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/members-desktop.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: process.env.WORKBENCH_UI_SCREENSHOTS + "/members-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  }
+});
+
+test("member multiple roles preserve exact arrays and cancellation preserves the draft", async ({
+  page,
+}) => {
+  await login(page, "admin");
+  await page.goto("/members");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "顾查看" })
+    .getByRole("button", { name: "授权", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("前端", { exact: true }).first().check();
+  await dialog.getByLabel("测试", { exact: true }).first().check();
+  await dialog.getByRole("button", { name: "返回并保留草稿" }).click();
+  await page
+    .getByRole("row")
+    .filter({ hasText: "顾查看" })
+    .getByRole("button", { name: "授权", exact: true })
+    .click();
+  await expect(
+    dialog.getByLabel("前端", { exact: true }).first(),
+  ).toBeChecked();
+  await expect(
+    dialog.getByLabel("测试", { exact: true }).first(),
+  ).toBeChecked();
+  const sent = page.waitForRequest(
+    (r) => r.url().includes("/roles") && r.method() === "PUT",
+  );
+  await dialog.getByRole("button", { name: "确认调整项目授权" }).click();
+  const body = (await sent).postDataJSON();
+  expect(body.roles).toEqual(["frontend", "test"]);
+  expect(body.leads).toEqual([]);
+  expect(body.memberId).toBe("viewer");
+  await expect(dialog).toHaveCount(0);
+});
+
+test("report confirmation cancellation and late metadata retain draft and navigation ownership", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto("/reports");
+  await page.getByRole("button", { name: "生成新日报", exact: true }).click();
+  const editor = page.getByLabel("日报文本", { exact: true });
+  await expect(editor).toBeVisible();
+  await editor.fill("保留未保存稿件");
+  const trigger = page.getByRole("button", {
+    name: "返回全部日报",
+    exact: true,
+  });
+  await trigger.click();
+  await expect(
+    page.getByRole("dialog", { name: "确认切换日报" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(editor).toHaveValue("保留未保存稿件");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.getByRole("button", { name: "保留副本并继续" }).click();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let received = false;
+  await page.route("**/api/reports/*/source-changes", async (route) => {
+    const response = await route.fetch();
+    received = true;
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page
+    .getByRole("button", { name: /V1 生成稿/ })
+    .first()
+    .click();
+  await expect.poll(() => received).toBe(true);
+  await page.getByRole("button", { name: "返回全部日报", exact: true }).click();
+  const completed = page.waitForResponse((r) =>
+    r.url().includes("/source-changes"),
+  );
+  release();
+  await completed;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(
+    page.getByRole("heading", { name: "已保存日报", exact: true }),
+  ).toBeVisible();
+  await expect(editor).toHaveCount(0);
+});
+
+test("report UTF-16 limit retains oversized drafts and sends the exact accepted boundary", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto("/reports");
+  await page.getByRole("button", { name: "生成新日报", exact: true }).click();
+  const editor = page.getByLabel("日报文本", { exact: true });
+  await expect(editor).toBeVisible();
+  const sent: any[] = [];
+  await page.route("**/api/reports/*/versions", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    sent.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  const oversized = "😀".repeat(100001);
+  await editor.fill(oversized);
+  await page.getByRole("button", { name: "保存稿件版本", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "日报文本最多 200000 个字符单位（UTF-16）",
+  );
+  expect(sent).toHaveLength(0);
+  await expect(editor).toHaveValue(oversized);
+  await page.getByRole("button", { name: "生成新日报", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(sent).toHaveLength(0);
+  await page.reload();
+  await page.getByRole("button", { name: "恢复本地草稿", exact: true }).click();
+  await expect(editor).toHaveValue(oversized);
+  await page.getByRole("button", { name: "保存稿件版本", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "日报文本最多 200000 个字符单位（UTF-16）",
+  );
+  expect(sent).toHaveLength(0);
+  const boundary = "😀".repeat(100000);
+  await editor.fill(boundary);
+  const response = page.waitForResponse(
+    (r) => r.url().includes("/versions") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "保存稿件版本", exact: true }).click();
+  expect((await response).status()).toBe(200);
+  expect(sent).toHaveLength(1);
+  expect(sent[0].text.length).toBe(200000);
+  await expect(editor).toHaveValue(boundary);
+});

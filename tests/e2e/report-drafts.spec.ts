@@ -47,8 +47,10 @@ test("task_10 a report draft can be explicitly restored after leaving and reopen
   await page.getByRole("button", { name: "生成新日报", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("日报草稿已生成");
   await page.getByLabel("日报文本").fill("未保存但可恢复的独立草稿");
-  page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "返回全部日报", exact: true }).click();
+  await page
+    .getByRole("button", { name: "保留副本并继续", exact: true })
+    .click();
   await page
     .getByRole("button", { name: /V1 生成稿/ })
     .first()
@@ -129,8 +131,10 @@ test("task_10 restored version draft retains its expected version and stays isol
   await other.goto("/reports");
   await expect(other.getByLabel("日报文本")).toBeEditable();
   await page.getByLabel("日报文本").fill("V1独立恢复文字");
-  page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "返回全部日报", exact: true }).click();
+  await page
+    .getByRole("button", { name: "保留副本并继续", exact: true })
+    .click();
   await other.getByLabel("日报文本").fill("另一页面已保存V2");
   await other
     .getByRole("button", { name: "保存稿件版本", exact: true })

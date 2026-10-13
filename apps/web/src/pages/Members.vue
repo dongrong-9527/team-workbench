@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import ASelect from "ant-design-vue/es/select";
+import AInput from "ant-design-vue/es/input";
+import ATable from "ant-design-vue/es/table";
+import ATag from "ant-design-vue/es/tag";
+import AButton from "ant-design-vue/es/button";
+import AAlert from "ant-design-vue/es/alert";
 import { ref, computed, watch } from "vue";
 import { state, refreshDirectory, zh } from "../state";
 import { request, type Page } from "../api/client";
@@ -146,107 +152,125 @@ async function saved(r: any) {
       <h1>成员管理</h1>
       <p>有效成员可阅读全项目；执行与管理权限按项目授予。</p>
     </div>
-    <button
+    <AButton
       v-if="state.member?.isAdmin"
-      class="primary"
+      type="primary"
       @click="open('create')"
     >
       创建成员
-    </button>
+    </AButton>
   </div>
-  <p v-if="error" class="error" role="alert">
-    {{ error }}<button @click="load()">重新读取成员</button>
-  </p>
-  <p v-if="notice" class="success" role="status">{{ notice }}</p>
+  <AAlert v-if="error" type="error" show-icon role="alert"
+    ><template #message>
+      {{ error }}<AButton @click="load()">重新读取成员</AButton>
+    </template></AAlert
+  >
+  <AAlert
+    v-if="notice"
+    :message="notice"
+    type="success"
+    role="status"
+    show-icon
+  />
   <section v-if="ticket" class="panel panel-body">
     <h2>{{ ticketKind === "activate" ? "激活" : "重置" }}票据 · 仅本次显示</h2>
     <p>
       通过可信渠道交给本人；请勿用于截图或公开文档。票据不会存储到本地草稿。
     </p>
     <label
-      >一次性票据<input :value="ticket" readonly autocomplete="off" /></label
+      >一次性票据<AInput :value="ticket" readonly autocomplete="off" /></label
     ><RouterLink :to="ticketKind === 'activate' ? '/activate' : '/reset'"
       >打开本人{{ ticketKind === "activate" ? "激活" : "重置" }}表单</RouterLink
-    ><button @click="ticket = ''">隐藏票据</button>
+    ><AButton @click="ticket = ''">隐藏票据</AButton>
   </section>
   <section class="panel">
     <div class="filters" style="padding-top: 20px">
-      <label
-        >授权项目<select aria-label="授权项目" v-model="projectId">
-          <option v-for="p in state.projects" :value="p.id">
-            {{ p.name }}
-          </option>
-        </select></label
-      ><label
-        >成员状态<select aria-label="成员状态" v-model="active">
-          <option value="">全部成员</option>
-          <option value="true">有效成员</option>
-          <option value="false">已停用</option>
-        </select></label
-      ><button @click="refreshDirectory().then(() => load())">刷新权限</button>
+      <div>
+        <label for="member-project">授权项目</label
+        ><ASelect
+          id="member-project"
+          v-model:value="projectId"
+          :options="state.projects.map((p) => ({ value: p.id, label: p.name }))"
+        />
+      </div>
+      <div>
+        <label for="member-active">成员状态</label
+        ><ASelect
+          id="member-active"
+          :value="active"
+          @update:value="active = typeof $event === 'string' ? $event : ''"
+          allow-clear
+          :options="[
+            { value: '', label: '全部成员' },
+            { value: 'true', label: '有效成员' },
+            { value: 'false', label: '已停用' },
+          ]"
+        />
+      </div>
+      <AButton @click="refreshDirectory().then(() => load())">刷新权限</AButton>
     </div>
     <p v-if="!state.member?.isAdmin" class="panel-body muted">
       你可查看安全成员目录，管理动作仅向管理员开放。
     </p>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>成员</th>
-            <th>状态</th>
-            <th>项目角色</th>
-            <th v-if="state.member?.isAdmin">管理操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="m in members">
-            <td>
-              <button @click="auditMember = m.id">{{ m.displayName }}</button>
-              <div class="revision">
-                {{ m.isAdmin ? "平台管理员" : "平台成员" }}
-              </div>
-            </td>
-            <td>
-              <span class="badge" :class="m.active ? 'done' : 'warning'">{{
-                m.active ? "有效" : "已停用"
-              }}</span>
-            </td>
-            <td>
-              <span v-for="r in m.roles" class="badge"
-                >{{ zh(r.role) }}{{ r.lead ? "负责人" : "" }}</span
-              ><span v-if="!m.roles?.length" class="muted">全项目可读</span>
-            </td>
-            <td v-if="state.member?.isAdmin">
-              <div class="toolbar" style="margin: 0">
-                <button @click="open('rename', m)">改名</button
-                ><button
-                  v-if="m.active && !project?.archived"
-                  @click="open('roles', m)"
-                >
-                  授权</button
-                ><button v-if="m.active" @click="open('reset', m)">
-                  重置密码</button
-                ><button
-                  v-if="m.active"
-                  @click="open('deactivate', m)"
-                  class="danger"
-                >
-                  停用
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <button
+    <ATable
+      :data-source="members"
+      row-key="id"
+      :pagination="false"
+      :scroll="{ x: 700 }"
+      :columns="[
+        { key: 'member', title: '成员' },
+        { key: 'active', title: '状态' },
+        { key: 'roles', title: '项目角色' },
+        ...(state.member?.isAdmin
+          ? [{ key: 'actions', title: '管理操作' }]
+          : []),
+      ]"
+    >
+      <template #bodyCell="{ column, record: m }">
+        <template v-if="column.key === 'member'"
+          ><AButton type="link" @click="auditMember = m.id">{{
+            m.displayName
+          }}</AButton>
+          <div class="revision">
+            {{ m.isAdmin ? "平台管理员" : "平台成员" }}
+          </div></template
+        >
+        <template v-else-if="column.key === 'active'"
+          ><ATag :color="m.active ? 'success' : 'warning'">{{
+            m.active ? "有效" : "已停用"
+          }}</ATag></template
+        >
+        <template v-else-if="column.key === 'roles'"
+          ><ATag v-for="r in m.roles"
+            >{{ zh(r.role) }}{{ r.lead ? "负责人" : "" }}</ATag
+          ><span v-if="!m.roles?.length" class="muted"
+            >全项目可读</span
+          ></template
+        >
+        <template v-else-if="column.key === 'actions'"
+          ><div class="toolbar" style="margin: 0">
+            <AButton @click="open('rename', m)">改名</AButton
+            ><AButton
+              v-if="m.active && !project?.archived"
+              @click="open('roles', m)"
+              >授权</AButton
+            ><AButton v-if="m.active" @click="open('reset', m)"
+              >重置密码</AButton
+            ><AButton v-if="m.active" danger @click="open('deactivate', m)"
+              >停用</AButton
+            >
+          </div></template
+        >
+      </template></ATable
+    >
+    <AButton
       v-if="cursor"
       class="load-more"
       :disabled="busy"
       @click="load(true)"
     >
       更多成员
-    </button>
+    </AButton>
   </section>
   <HistoryList v-if="auditMember" kind="member" :id="auditMember" /><ActionForm
     v-if="form"

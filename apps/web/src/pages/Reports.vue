@@ -1,4 +1,13 @@
 <script setup lang="ts">
+import ATag from "ant-design-vue/es/tag";
+import ADatePicker from "ant-design-vue/es/date-picker";
+import AInput, { Textarea as ATextarea } from "ant-design-vue/es/input";
+import ACheckbox, {
+  CheckboxGroup as ACheckboxGroup,
+} from "ant-design-vue/es/checkbox";
+import AModal from "ant-design-vue/es/modal";
+import AButton from "ant-design-vue/es/button";
+import AAlert from "ant-design-vue/es/alert";
 import { ref, watch, computed, nextTick, onBeforeUnmount } from "vue";
 import { state, today, nameOf } from "../state";
 import { request, command, ApiError, allSeqPages } from "../api/client";
@@ -42,7 +51,41 @@ const date = ref(saved?.date ?? today()),
   conflict = ref<Record<string, unknown>>(),
   confirmRegenerate = ref(false),
   regenerateIntent = ref(true),
-  textarea = ref<HTMLTextAreaElement>();
+  textarea = ref<{
+    focus: () => void;
+    resizableTextArea: { textArea: HTMLTextAreaElement };
+  }>();
+const navigation = ref<{ message: string; action: () => void }>();
+const navigationCancel = ref<{ focus: () => void }>();
+const regenerateCancel = ref<{ focus: () => void }>();
+let confirmationTrigger: HTMLElement | undefined;
+watch(
+  () => !!navigation.value || confirmRegenerate.value,
+  async (open) => {
+    if (open)
+      confirmationTrigger =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : undefined;
+    await nextTick();
+    if (!alive) return;
+    if (open)
+      (navigation.value
+        ? navigationCancel.value
+        : regenerateCancel.value
+      )?.focus();
+    else if (confirmationTrigger?.isConnected) confirmationTrigger.focus();
+  },
+);
+function confirmNavigation() {
+  const action = navigation.value?.action;
+  navigation.value = undefined;
+  if (alive && !busy.value) action?.();
+}
+function selectText() {
+  textarea.value?.focus();
+  textarea.value?.resizableTextArea.textArea.select();
+}
 interface LocalDraft {
   id: string;
   text: string;
@@ -140,12 +183,15 @@ function discardDraft(draft: LocalDraft) {
   recoverable.value = recoverable.value.filter((d) => d.id !== draft.id);
   notice.value = "已丢弃这一份本地草稿，保存的历史稿件未变。";
 }
-function closeCurrent() {
-  if (
-    dirty.value &&
-    !window.confirm("未保存内容将保留在本地副本，返回全部日报？")
-  )
+function closeCurrent(confirmed = false) {
+  if (!alive || busy.value) return;
+  if (dirty.value && !confirmed) {
+    navigation.value = {
+      message: "未保存内容将保留在本地副本，返回全部日报？",
+      action: () => closeCurrent(true),
+    };
     return;
+  }
   persistDraft();
   metadataReads.invalidate();
   current.value = undefined;
@@ -207,13 +253,17 @@ async function loadMetadata() {
     read.finish(() => {});
   }
 }
-async function select(r: ReportVersion) {
-  if (busy.value) return;
-  if (
-    dirty.value &&
-    !window.confirm("此日报有未保存修改。切换前将保留本地副本，继续切换？")
-  )
+async function select(r: ReportVersion, confirmed = false) {
+  if (!alive || busy.value) return;
+  if (dirty.value && !confirmed) {
+    navigation.value = {
+      message: "此日报有未保存修改。切换前将保留本地副本，继续切换？",
+      action: () => {
+        void select(r, true);
+      },
+    };
     return;
+  }
   persistDraft();
   adopt(r);
   await loadMetadata();
@@ -252,8 +302,18 @@ async function saveMutation() {
   if (alive) adopt(r, false, false);
   return r;
 }
+function validateEditor() {
+  // Ant TextArea maxlength counts codepoints; the report API counts UTF-16 units.
+  // Keep oversized restored/pasted drafts intact and block their mutation locally.
+  if (editor.value.length > REPORT_TEXT_LIMITS.edited) {
+    error.value = `日报文本最多 ${REPORT_TEXT_LIMITS.edited} 个字符单位（UTF-16）`;
+    return false;
+  }
+  return true;
+}
 async function generate(regenerate = false) {
-  if (busy.value) return;
+  if (busy.value || (!regenerate && !date.value)) return;
+  if (dirty.value && !validateEditor()) return;
   if (
     (dirty.value || (regenerate && current.value?.edited)) &&
     !confirmRegenerate.value
@@ -300,7 +360,7 @@ async function generate(regenerate = false) {
   }
 }
 async function save() {
-  if (busy.value || !current.value) return;
+  if (busy.value || !current.value || !validateEditor()) return;
   busy.value = true;
   error.value = "";
   try {
@@ -325,8 +385,7 @@ async function copy() {
     manualCopy.value = true;
     notice.value = "浏览器未允许复制，文本已保留。请选中文本后手动复制。";
     await nextTick();
-    textarea.value?.focus();
-    textarea.value?.select();
+    selectText();
   }
 }
 async function latest() {
@@ -356,40 +415,50 @@ async function latest() {
       <h1>日报工作区</h1>
       <p>选择成员与项目，生成可追溯的纯文本草稿。</p>
     </div>
-    <span class="badge">{{ timeZone }}</span>
+    <ATag>{{ timeZone }}</ATag>
   </div>
   <section class="panel panel-body">
     <div class="form-grid">
-      <label>报告日期<input v-model="date" type="date" required /></label
-      ><label>时区<input v-model="timeZone" required /></label>
+      <div>
+        <label for="report-date">报告日期</label
+        ><ADatePicker
+          id="report-date"
+          :value="date || undefined"
+          @update:value="date = typeof $event === 'string' ? $event : ''"
+          value-format="YYYY-MM-DD"
+          format="YYYY-MM-DD"
+        />
+      </div>
+      <div>
+        <label for="report-zone">时区</label
+        ><AInput id="report-zone" v-model:value="timeZone" required />
+      </div>
       <div class="wide">
         <h3>成员范围</h3>
-        <div class="chips">
-          <label v-for="m in state.members"
-            ><input type="checkbox" :value="m.id" v-model="memberIds" />{{
-              m.displayName
-            }}{{ m.active ? "" : "（已停用）" }}</label
-          >
-        </div>
+        <ACheckboxGroup v-model:value="memberIds" class="chips"
+          ><ACheckbox v-for="m in state.members" :value="m.id"
+            >{{ m.displayName }}{{ m.active ? "" : "（已停用）" }}</ACheckbox
+          ></ACheckboxGroup
+        >
       </div>
       <div class="wide">
         <h3>项目范围</h3>
-        <div class="chips">
-          <label v-for="p in state.projects"
-            ><input type="checkbox" :value="p.id" v-model="projectIds" />{{
-              p.name
-            }}{{ p.archived ? "（归档）" : "" }}</label
-          >
-        </div>
+        <ACheckboxGroup v-model:value="projectIds" class="chips"
+          ><ACheckbox v-for="p in state.projects" :value="p.id"
+            >{{ p.name }}{{ p.archived ? "（归档）" : "" }}</ACheckbox
+          ></ACheckboxGroup
+        >
       </div>
     </div>
     <div class="form-actions">
-      <button
-        class="primary"
-        :disabled="busy || !memberIds.length || !projectIds.length"
+      <AButton
+        type="primary"
+        :disabled="
+          busy || !date || !timeZone || !memberIds.length || !projectIds.length
+        "
         @click="generate(false)"
       >
-        生成新日报</button
+        生成新日报</AButton
       ><small class="muted"
         >空缺保持“未填写”；生成稿上限
         {{ REPORT_TEXT_LIMITS.generated.toLocaleString() }}
@@ -397,31 +466,41 @@ async function latest() {
       >
     </div>
   </section>
-  <p v-if="error" class="error" role="alert">
-    {{ error
-    }}<span v-if="error.includes('422') || error.includes('fewer')"
-      >请缩小成员或项目范围后重新生成，已填写文本不会被清空。</span
-    >
-  </p>
+  <AAlert v-if="error" type="error" show-icon role="alert"
+    ><template #message>
+      {{ error
+      }}<span v-if="error.includes('422') || error.includes('fewer')"
+        >请缩小成员或项目范围后重新生成，已填写文本不会被清空。</span
+      >
+    </template></AAlert
+  >
   <ConflictNotice
     v-if="conflict"
     :current="conflict"
     :original-version="expectedVersion"
     @adopt="latest"
   />
-  <p v-if="metadataError" class="error" role="alert">
-    稿件内容已保留，附加信息读取失败：{{ metadataError }}
-    <button
-      :disabled="busy"
-      @click="
-        loadMetadata();
-        list();
-      "
-    >
-      重试读取日报信息
-    </button>
-  </p>
-  <p v-if="notice" class="success" role="status">{{ notice }}</p>
+  <AAlert v-if="metadataError" type="error" show-icon role="alert"
+    ><template #message>
+      稿件内容已保留，附加信息读取失败：{{ metadataError }}
+      <AButton
+        :disabled="busy"
+        @click="
+          loadMetadata();
+          list();
+        "
+      >
+        重试读取日报信息
+      </AButton>
+    </template></AAlert
+  >
+  <AAlert
+    v-if="notice"
+    :message="notice"
+    type="success"
+    role="status"
+    show-icon
+  />
   <div class="detail-layout">
     <section class="panel panel-body">
       <template v-if="current"
@@ -429,9 +508,9 @@ async function latest() {
           <div>
             <h2>
               {{ current.input.date }} 日报
-              <span class="badge"
+              <ATag
                 >V{{ current.version }} ·
-                {{ current.edited ? "人工编辑" : "生成稿" }}</span
+                {{ current.edited ? "人工编辑" : "生成稿" }}</ATag
               >
             </h2>
             <p>
@@ -444,20 +523,20 @@ async function latest() {
           {{ current.stateCutoff.time }} · 生成于 {{ current.generatedAt }}
         </p>
         <div class="chips">
-          <span class="badge">完成任务 {{ current.counts.tasksDone }}</span
-          ><span class="badge">关闭 Bug {{ current.counts.bugsClosed }}</span
-          ><span class="badge"
-            >验收需求 {{ current.counts.requirementsAccepted }}</span
-          >
+          <ATag>完成任务 {{ current.counts.tasksDone }}</ATag
+          ><ATag>关闭 Bug {{ current.counts.bugsClosed }}</ATag
+          ><ATag>验收需求 {{ current.counts.requirementsAccepted }}</ATag>
         </div>
-        <p v-if="sourceChanges?.changed" class="danger-note">
-          有更新可重新生成。旧稿与来源快照保留不变。
-        </p>
+        <AAlert v-if="sourceChanges?.changed" type="warning" show-icon
+          ><template #message>
+            有更新可重新生成。旧稿与来源快照保留不变。
+          </template></AAlert
+        >
         <div class="tabs" style="margin-top: 20px">
-          <button @click="tab = 'editor'">稿件编辑</button
-          ><button @click="tab = 'sources'">
+          <AButton @click="tab = 'editor'">稿件编辑</AButton
+          ><AButton @click="tab = 'sources'">
             查看来源（{{ current.sources.length }}）
-          </button>
+          </AButton>
         </div>
         <section
           v-if="recoverable.length"
@@ -473,15 +552,16 @@ async function latest() {
               }}。恢复后仍需主动保存，历史稿件不会自动改变。
             </p>
             <p class="body-text">{{ draft.text.slice(0, 160) }}</p>
-            <button @click="restoreDraft(draft)">恢复本地草稿</button
-            ><button @click="discardDraft(draft)">丢弃本地草稿</button>
+            <AButton @click="restoreDraft(draft)">恢复本地草稿</AButton
+            ><AButton @click="discardDraft(draft)">丢弃本地草稿</AButton>
           </article>
         </section>
         <template v-if="tab === 'editor'"
           ><label
-            >日报文本<textarea
+            >日报文本<ATextarea
               ref="textarea"
-              v-model="editor"
+              :rows="18"
+              v-model:value="editor"
               @input="persistDraft"
               class="report-editor"
               :readonly="!mine || busy || recoverable.length > 0"
@@ -493,27 +573,21 @@ async function latest() {
             {{ REPORT_TEXT_LIMITS.edited.toLocaleString() }} 字符单位（UTF-16）
           </div>
           <div class="form-actions">
-            <button
+            <AButton
               v-if="mine"
-              class="primary"
+              type="primary"
               :disabled="busy || !dirty"
               @click="save"
             >
-              保存稿件版本</button
-            ><button :disabled="busy" @click="copy">复制纯文本</button
-            ><button v-if="mine" :disabled="busy" @click="generate(true)">
+              保存稿件版本</AButton
+            ><AButton :disabled="busy" @click="copy">复制纯文本</AButton
+            ><AButton v-if="mine" :disabled="busy" @click="generate(true)">
               重新生成
-            </button>
+            </AButton>
           </div>
-          <button
-            v-if="manualCopy"
-            @click="
-              textarea?.focus();
-              textarea?.select();
-            "
-          >
+          <AButton v-if="manualCopy" @click="selectText()">
             全选文本，手动复制
-          </button>
+          </AButton>
           <p v-if="!mine" class="muted">
             仅创建人可编辑和重生成此稿件。
           </p></template
@@ -529,16 +603,16 @@ async function latest() {
         <h2>{{ current ? "本日报版本" : "已保存日报" }}</h2>
         <ul class="history">
           <li v-for="r in (current ? versions : history).slice().reverse()">
-            <button :disabled="busy" @click="select(r)" :data-report-id="r.id">
+            <AButton :disabled="busy" @click="select(r)" :data-report-id="r.id">
               {{ r.input.date }} · V{{ r.version }}
-              {{ r.edited ? "人工编辑" : "生成稿" }}</button
+              {{ r.edited ? "人工编辑" : "生成稿" }}</AButton
             ><time>{{ r.createdAt }}</time
             ><span>{{ nameOf(r.creatorId) }}</span>
           </li>
         </ul>
-        <button v-if="current" :disabled="busy" @click="closeCurrent()">
+        <AButton v-if="current" :disabled="busy" @click="closeCurrent()">
           返回全部日报
-        </button>
+        </AButton>
         <p v-if="!history.length" class="muted">暂无已保存日报</p>
       </section>
       <div class="hint-card">
@@ -549,26 +623,48 @@ async function latest() {
       </div>
     </aside>
   </div>
-  <div v-if="confirmRegenerate" class="dialog-backdrop">
-    <section
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-label="确认重新生成"
-    >
-      <h2>保留旧稿，再生成新版本</h2>
-      <p>
-        当前稿件包含人工修改。继续后先保存这份修改稿，再依据最新来源创建新版本。所有历史版本保持可读。
-      </p>
-      <button
-        class="primary"
+  <AModal
+    :open="confirmRegenerate"
+    title="确认重新生成"
+    :footer="null"
+    :closable="!busy"
+    :mask-closable="false"
+    :keyboard="!busy"
+    destroy-on-close
+    @cancel="confirmRegenerate = false"
+  >
+    <h2>保留旧稿，再生成新版本</h2>
+    <p>
+      当前稿件包含人工修改。继续后先保存这份修改稿，再依据最新来源创建新版本。所有历史版本保持可读。
+    </p>
+    <div class="form-actions">
+      <AButton
+        type="primary"
         :disabled="busy"
+        :loading="busy"
         @click="generate(regenerateIntent)"
+        >保留旧稿并重新生成</AButton
+      ><AButton
+        ref="regenerateCancel"
+        :disabled="busy"
+        @click="confirmRegenerate = false"
+        >返回编辑</AButton
       >
-        保留旧稿并重新生成</button
-      ><button :disabled="busy" @click="confirmRegenerate = false">
-        返回编辑
-      </button>
-    </section>
-  </div>
+    </div>
+  </AModal>
+  <AModal
+    :open="!!navigation"
+    title="确认切换日报"
+    :footer="null"
+    :mask-closable="false"
+    destroy-on-close
+    @cancel="navigation = undefined"
+    ><p>{{ navigation?.message }}</p>
+    <div class="form-actions">
+      <AButton type="primary" @click="confirmNavigation">保留副本并继续</AButton
+      ><AButton ref="navigationCancel" @click="navigation = undefined"
+        >返回编辑</AButton
+      >
+    </div></AModal
+  >
 </template>
