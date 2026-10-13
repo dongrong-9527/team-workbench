@@ -5,9 +5,9 @@ import { lstat, readFile, readdir, writeFile, copyFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const SOURCE_SHA = '443407ccf975a2285d5f70cbcc2fa2b0a41ecaab';
+export const SOURCE_SHA = 'be9911e63d2ae0fd2d2b9979b9a5ff91fc6537a7';
 export const BUILD_IMAGE = 'node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0';
-const LOCK_SHA = '3eb9e205653b1807cfcd3227b9772fd51b21ac6cdea03a05d514f406096faf44';
+const LOCK_SHA = '9026d8bda8f411022b59090930440943777ebd74cd41e3704a47835058f30a00';
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const uploadNames = ['SHA256SUMS', 'candidate.tar.gz', 'release-manifest.json', 'verification.json'].sort();
 

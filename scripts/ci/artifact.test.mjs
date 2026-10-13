@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 const sha = (value) => createHash('sha256').update(value).digest('hex');
-const source = '443407ccf975a2285d5f70cbcc2fa2b0a41ecaab';
+const source = 'be9911e63d2ae0fd2d2b9979b9a5ff91fc6537a7';
 // Removing a gate must allow the corresponding real tampered package through.
 // Load dynamically so the initial RED is an explicit missing-delivery-gate assertion.
 async function gates() {
@@ -134,4 +134,13 @@ test('roundtrip fails on missing/extra files and invalid checksum sidecars', asy
   await assert.rejects(g.verifyDownload(f.downloaded, f.original));
   await rm(join(f.downloaded, 'candidate.tar.gz'));
   await assert.rejects(g.verifyDownload(f.downloaded, f.original), /upload/i);
+});
+
+test('delivery configuration binds the reviewed UI source, lock and labels', async () => {
+  const g = await gates();
+  assert.equal(g.SOURCE_SHA, source);
+  const helper = await readFile(new URL('./artifact.mjs', import.meta.url), 'utf8');
+  assert.ok(helper.includes("const LOCK_SHA = '9026d8bda8f411022b59090930440943777ebd74cd41e3704a47835058f30a00'"));
+  const build = await readFile(new URL('./build-linux.sh', import.meta.url), 'utf8');
+  assert.ok(build.includes(`candidate-${source.slice(0, 7)} >`));
 });
