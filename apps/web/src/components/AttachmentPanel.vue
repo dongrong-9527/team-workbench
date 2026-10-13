@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import UploadOutlined from "@ant-design/icons-vue/UploadOutlined";
-import AAlert from "ant-design-vue/es/alert";
 import AButton from "ant-design-vue/es/button";
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { request } from "../api/client";

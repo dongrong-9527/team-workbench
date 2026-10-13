@@ -323,3 +323,75 @@ test("Ant work date clear blocks submission and keeps YYYY-MM-DD payloads", asyn
   expect((await sent).postDataJSON().workDate).toBe(original);
   await expect(dialog).toHaveCount(0);
 });
+
+test("nested supplementary-character bounds block requests and restored drafts use UTF-16 limits", async ({
+  page,
+}) => {
+  await login(page, "product");
+  await page.goto("/projects/p1");
+  await page.getByRole("button", { name: "新建需求", exact: true }).click();
+  await page.getByLabel("标题", { exact: true }).fill("嵌套字符边界");
+  await page.getByLabel("来源说明", { exact: true }).fill("合成评审");
+  await page
+    .getByLabel("需求细化说明", { exact: true })
+    .fill("验证 UTF-16 长度边界");
+  await selectOption(page, "产品验收人", { value: "product", label: "林产品" });
+  const requests: any[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/requirements", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    requests.push(route.request().postDataJSON());
+    await gate;
+    await route.continue();
+  });
+  await page.getByLabel("条目说明", { exact: true }).fill("😀".repeat(1001));
+  await page.getByRole("button", { name: "确认新建需求", exact: true }).click();
+  await expect(
+    page.getByText("条目说明最多 2000 个字符", { exact: true }),
+  ).toBeVisible();
+  expect(requests).toHaveLength(0);
+  await page.getByLabel("条目说明", { exact: true }).fill("😀".repeat(1000));
+  await page
+    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .click();
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((key) =>
+      key.startsWith("workbench:draft:product:"),
+    )!;
+    const draft = JSON.parse(localStorage.getItem(key)!);
+    draft.values.criteria[0].id = "😀".repeat(65);
+    draft.values.criteria[0].required = false;
+    draft.values.criteria[0].exclusionReason = "😀".repeat(1001);
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  await page.getByRole("button", { name: "新建需求", exact: true }).click();
+  await page.getByRole("button", { name: "确认新建需求", exact: true }).click();
+  await expect(
+    page.getByText("条目编号最多 128 个字符", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("排除原因最多 2000 个字符", { exact: true }),
+  ).toBeVisible();
+  expect(requests).toHaveLength(0);
+  await page.getByLabel("条目编号", { exact: true }).fill("😀".repeat(64));
+  await page.getByLabel("排除原因", { exact: true }).fill("😀".repeat(1000));
+  const response = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/requirements") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "确认新建需求", exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  await expect(
+    page.getByRole("button", { name: "添加条目", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("条目说明", { exact: true })).toHaveCount(1);
+  expect(requests[0].criteria[0].id.length).toBe(128);
+  expect(requests[0].criteria[0].text.length).toBe(2000);
+  expect(requests[0].criteria[0].exclusionReason.length).toBe(2000);
+  release();
+  expect((await response).status()).toBe(200);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

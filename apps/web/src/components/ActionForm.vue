@@ -169,7 +169,13 @@ function rules(f: Field) {
 }
 const textRules = (label: string, max: number, required = false) => [
   { required, message: `请填写${label}` },
-  { max, message: `${label}最多 ${max} 个字符` },
+  {
+    validator: async (_rule: unknown, value: unknown) => {
+      // The API measures UTF-16 units; async-validator's max counts codepoints.
+      if (typeof value === "string" && value.length > max)
+        throw new Error(`${label}最多 ${max} 个字符`);
+    },
+  },
 ];
 onBeforeRouteLeave(() => !busy.value);
 onBeforeRouteUpdate(() => !busy.value);
@@ -308,7 +314,7 @@ onUnmounted(() => {
                   >
                 </div>
                 <AButton
-                  :disabled="values[f.key].length >= CHECK_ENTRY_LIMIT"
+                  :disabled="busy || values[f.key].length >= CHECK_ENTRY_LIMIT"
                   @click="
                     values[f.key].push({
                       id: newId(),
