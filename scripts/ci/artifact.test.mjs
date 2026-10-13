@@ -90,3 +90,12 @@ test('allows public dependency fixture code while excluding top-level smoke fixt
   f.files['fixture/smoke.json'] = '{}'; await f.seal();
   await assert.rejects(g.auditPackage(f.root), /unexpected|forbidden/i);
 });
+test('rejects unexpected dependency fixtures and secrets in an allowed public fixture', async (t) => {
+  const f = await fixture(t); const g = await gates();
+  f.files['node_modules/example/fixtures/auth.json'] = '{}'; await f.seal();
+  await assert.rejects(g.auditPackage(f.root), /forbidden/i);
+  delete f.files['node_modules/example/fixtures/auth.json'];
+  await rm(join(f.root, 'node_modules/example'), { recursive: true });
+  f.files['node_modules/json-schema-traverse/spec/fixtures/schema.js'] = 'https://operator:actual-secret@service.invalid'; await f.seal();
+  await assert.rejects(g.auditPackage(f.root), /credential/i);
+});

@@ -26,6 +26,11 @@ export async function assertSource(root) {
   }
 }
 function checkPrivacy(path, bytes) {
+  // These two lockfile-bound vendor JS fixtures were inspected as public code.
+  if (/(^|\/)fixtures?(?:\/|$)/i.test(path) && ![
+    'node_modules/json-schema-traverse/spec/fixtures/schema.js',
+    'node_modules/sonic-boom/fixtures/firehose.js',
+  ].includes(path)) throw Error('Forbidden private fixture filename');
   if (/(^|\/)(?:\.git|\.env(?:\..*)?|\.npmrc|\.ssh|\.aws|private-inputs|private-tools|logs?|traces?|test-results)(?:\/|$)/i.test(path) || /\.(?:db|sqlite(?:3)?|sqlite-wal|sqlite-shm|docx?|xlsx?|pem|key|p12|log|har)$/i.test(path) || /(?:-wal|-shm)$/.test(path))
     throw Error('Forbidden private package filename');
   // Scan every byte buffer, including binary files; never print matching content.
