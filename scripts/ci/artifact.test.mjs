@@ -76,3 +76,17 @@ test('upload gate rejects missing and unexpected files', async (t) => {
   await writeFile(join(delivery, 'smoke.log'), 'secret'); await assert.rejects(g.assertUploadFiles(delivery), /upload/i);
   await rm(join(delivery, 'smoke.log')); await rm(join(delivery, 'candidate.tar.gz')); await assert.rejects(g.assertUploadFiles(delivery), /upload/i);
 });
+test('allows public Node type documentation examples but rejects other credential URLs', async (t) => {
+  const f = await fixture(t); const g = await gates();
+  f.files['node_modules/@types/node/http.d.ts'] = "const options = new URL('http://abc:xyz@example.com');";
+  await f.seal(); await g.auditPackage(f.root);
+  f.files['node_modules/@types/node/http.d.ts'] += ' https://operator:actual-secret@service.invalid';
+  await f.seal(); await assert.rejects(g.auditPackage(f.root), /credential/i);
+});
+test('allows public dependency fixture code while excluding top-level smoke fixtures', async (t) => {
+  const f = await fixture(t); const g = await gates();
+  f.files['node_modules/json-schema-traverse/spec/fixtures/schema.js'] = 'module.exports = { type: "object" };';
+  await f.seal(); await g.auditPackage(f.root);
+  f.files['fixture/smoke.json'] = '{}'; await f.seal();
+  await assert.rejects(g.auditPackage(f.root), /unexpected|forbidden/i);
+});

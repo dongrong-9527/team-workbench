@@ -26,10 +26,14 @@ export async function assertSource(root) {
   }
 }
 function checkPrivacy(path, bytes) {
-  if (/(^|\/)(?:\.git|\.env(?:\..*)?|\.npmrc|\.ssh|\.aws|private-inputs|private-tools|fixtures?|logs?|traces?|test-results)(?:\/|$)/i.test(path) || /\.(?:db|sqlite(?:3)?|sqlite-wal|sqlite-shm|docx?|xlsx?|pem|key|p12|log|har)$/i.test(path) || /(?:-wal|-shm)$/.test(path))
+  if (/(^|\/)(?:\.git|\.env(?:\..*)?|\.npmrc|\.ssh|\.aws|private-inputs|private-tools|logs?|traces?|test-results)(?:\/|$)/i.test(path) || /\.(?:db|sqlite(?:3)?|sqlite-wal|sqlite-shm|docx?|xlsx?|pem|key|p12|log|har)$/i.test(path) || /(?:-wal|-shm)$/.test(path))
     throw Error('Forbidden private package filename');
   // Scan every byte buffer, including binary files; never print matching content.
-  const text = bytes.toString('utf8');
+  let text = bytes.toString('utf8');
+  // Exact public examples shipped by the lockfile-bound @types/node 24.19.2.
+  // This does not exempt any file from scanning or allow arbitrary userinfo URLs.
+  if (/^node_modules\/@types\/node\/(?:http|https|url)\.d\.ts$/.test(path))
+    text = text.replace(/https?:\/\/(?:(?:abc:xyz|abc:123|123:xyz)@example\.com(?=['/])|a:b@(?:測試\?abc#foo|xn--g6w251d\/\?abc#foo))/g, 'public-documentation-example');
   if (/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[A-Z0-9]{16})\b|https?:\/\/[^\s/:]+:[^\s/@]+@|\/(?:workspace\/private-|home\/runner\/work\/)|\b(?:file|folder)_[a-f0-9]{24,}/.test(text))
     throw Error('Private content or credential marker in package');
 }
