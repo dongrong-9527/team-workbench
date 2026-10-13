@@ -44,6 +44,7 @@ jobs:
         shell: bash
         run: bash ci-config/scripts/ci/package-linux.sh "$GITHUB_WORKSPACE/application-source" "$RUNNER_TEMP/linux-candidate"
       - name: Upload reviewed public candidate files
+        id: candidate-upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: candidate-443407c-linux-x64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -55,3 +56,19 @@ jobs:
           retention-days: 3
           compression-level: 0
           if-no-files-found: error
+      - name: Prepare fresh artifact download directory
+        shell: bash
+        env:
+          ARTIFACT_ID: ${{ steps.candidate-upload.outputs.artifact-id }}
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          mkdir "$RUNNER_TEMP/candidate-roundtrip"
+      - name: Download the artifact just uploaded in this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ steps.candidate-upload.outputs.artifact-id }}
+          path: ${{ runner.temp }}/candidate-roundtrip
+          digest-mismatch: error
+      - name: Verify downloaded bytes and print public checksums
+        shell: bash
+        run: node ci-config/scripts/ci/artifact.mjs download "$RUNNER_TEMP/candidate-roundtrip" "$RUNNER_TEMP/linux-candidate/delivery"

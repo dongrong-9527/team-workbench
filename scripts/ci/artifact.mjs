@@ -78,6 +78,18 @@ export async function assertUploadFiles(directory) {
     if (!stat.isFile() || stat.size === 0) throw Error('Upload file must be a nonempty regular file');
   }
 }
+export async function verifyDownload(downloaded, original) {
+  await assertUploadFiles(downloaded);
+  await assertUploadFiles(original);
+  // Bind the downloaded sidecar/summary to the previously audited upload bytes
+  // before interpreting paths or printing any downloaded content.
+  for (const name of uploadNames)
+    if (hash(await readFile(join(downloaded, name))) !== hash(await readFile(join(original, name))))
+      throw Error('Downloaded artifact byte mismatch');
+  execFileSync('sha256sum', ['--check', '--strict', 'SHA256SUMS'], { cwd: downloaded, stdio: 'pipe' });
+  return (await readFile(join(downloaded, 'verification.json'), 'utf8')) +
+    (await readFile(join(downloaded, 'SHA256SUMS'), 'utf8'));
+}
 async function finalize(root, delivery, smokeFile, configSHA) {
   if (!/^[a-f0-9]{40}$/.test(configSHA)) throw Error('Invalid configuration SHA');
   const audit = await auditPackage(root);
@@ -109,5 +121,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (command === 'source') await assertSource(args[0]);
   else if (command === 'audit') console.log(JSON.stringify(await auditPackage(args[0])));
   else if (command === 'finalize') await finalize(...args);
+  else if (command === 'download') process.stdout.write(await verifyDownload(...args));
   else throw Error('Unknown delivery gate');
 }

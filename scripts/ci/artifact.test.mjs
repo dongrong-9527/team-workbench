@@ -99,3 +99,39 @@ test('rejects unexpected dependency fixtures and secrets in an allowed public fi
   f.files['node_modules/json-schema-traverse/spec/fixtures/schema.js'] = 'https://operator:actual-secret@service.invalid'; await f.seal();
   await assert.rejects(g.auditPackage(f.root), /credential/i);
 });
+async function roundtripFixture(t) {
+  const f = await fixture(t);
+  const original = join(f.root, 'original'), downloaded = join(f.root, 'downloaded');
+  for (const directory of [original, downloaded]) {
+    await mkdir(directory);
+    const files = { 'candidate.tar.gz': 'archive bytes', 'release-manifest.json': '{}\n', 'verification.json': '{"ok":true}\n' };
+    files.SHA256SUMS = Object.entries(files).map(([name, bytes]) => `${sha(bytes)}  ${name}`).join('\n') + '\n';
+    for (const [name, bytes] of Object.entries(files)) await writeFile(join(directory, name), bytes);
+  }
+  return { original, downloaded };
+}
+test('roundtrip verifies all four downloaded bytes and returns only the public summary/checksums', async (t) => {
+  const f = await roundtripFixture(t); const g = await gates();
+  assert.equal(typeof g.verifyDownload, 'function', 'Downloaded artifact verification gate must exist');
+  const output = await g.verifyDownload(f.downloaded, f.original);
+  assert.equal(output, (await readFile(join(f.original, 'verification.json'), 'utf8')) + (await readFile(join(f.original, 'SHA256SUMS'), 'utf8')));
+});
+test('roundtrip fails on changed archive bytes even if downloaded checksums are rewritten', async (t) => {
+  const f = await roundtripFixture(t); const g = await gates();
+  assert.equal(typeof g.verifyDownload, 'function', 'Downloaded artifact verification gate must exist');
+  await writeFile(join(f.downloaded, 'candidate.tar.gz'), 'changed bytes');
+  await writeFile(join(f.downloaded, 'SHA256SUMS'), `${sha('changed bytes')}  candidate.tar.gz\n`);
+  await assert.rejects(g.verifyDownload(f.downloaded, f.original), /download|mismatch/i);
+});
+test('roundtrip fails on missing/extra files and invalid checksum sidecars', async (t) => {
+  const f = await roundtripFixture(t); const g = await gates();
+  assert.equal(typeof g.verifyDownload, 'function', 'Downloaded artifact verification gate must exist');
+  await writeFile(join(f.downloaded, 'extra.log'), 'must not print');
+  await assert.rejects(g.verifyDownload(f.downloaded, f.original), /upload/i);
+  await rm(join(f.downloaded, 'extra.log'));
+  // Matching files alone are insufficient: the checksum program must succeed.
+  for (const directory of [f.original, f.downloaded]) await writeFile(join(directory, 'SHA256SUMS'), `${'0'.repeat(64)}  candidate.tar.gz\n`);
+  await assert.rejects(g.verifyDownload(f.downloaded, f.original));
+  await rm(join(f.downloaded, 'candidate.tar.gz'));
+  await assert.rejects(g.verifyDownload(f.downloaded, f.original), /upload/i);
+});
