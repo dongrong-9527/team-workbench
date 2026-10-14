@@ -14,9 +14,13 @@ import { useReadScope } from "../composables/readScope";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
 const route = useRoute(), router = useRouter();
+function projectFromQuery(value: unknown): string {
+  if (value === undefined) return state.projectId || state.projects[0]?.id || "";
+  return typeof value === "string" ? value : "";
+}
 const auditMember = ref("");
 const members = ref<any[]>([]),
-  projectId = ref(typeof route.query.projectId === "string" ? route.query.projectId : state.projectId || state.projects[0]?.id || ""),
+  projectId = ref(projectFromQuery(route.query.projectId)),
   active = ref(""),
   cursor = ref<string | null>(null),
   error = ref(""),
@@ -61,7 +65,7 @@ async function load(more = false) {
   }
 }
 watch(() => route.query.projectId, (id) => {
-  projectId.value = typeof id === "string" ? id : "";
+  projectId.value = projectFromQuery(id);
   form.value = undefined;
 });
 function selectProject(id: unknown) {

@@ -154,6 +154,11 @@ test('bootstrap developer claims task and confirmed Bug, cannot self accept, arc
 });
 test('bootstrap role management rejects missing or invalid project selection and keeps global scope separate', async ({page}) => {
   await login(page,'bootstrap');
+  const roleMutations: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'PUT' && new URL(request.url()).pathname.endsWith('/roles'))
+      roleMutations.push(new URL(request.url()).pathname);
+  });
   await page.goto('/members?projectId=missing-project');
   await expect(page.getByText('请先选择有效项目，再调整项目角色。',{exact:true})).toBeVisible();
   for (const button of await page.getByRole('button',{name:'授权',exact:true}).all()) await expect(button).toBeDisabled();
@@ -178,4 +183,16 @@ test('bootstrap role management rejects missing or invalid project selection and
   await expect(page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'全部项目',exact:true}).click();
   await expect(page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true})).toBeVisible();
+  for (const query of ['projectId', 'projectId=missing-a&projectId=missing-b']) {
+    await page.goto('/members?' + query);
+    for (const reload of [false, true]) {
+      if (reload) await page.reload();
+      await expect(page.getByText('请先选择有效项目，再调整项目角色。',{exact:true})).toBeVisible();
+      const grants = page.getByRole('button',{name:'授权',exact:true});
+      await expect(grants).toHaveCount(2);
+      for (const button of await grants.all()) await expect(button).toBeDisabled();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+  }
+  expect(roleMutations).toEqual([]);
 });
