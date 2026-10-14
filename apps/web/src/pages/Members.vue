@@ -6,15 +6,17 @@ import ATag from "ant-design-vue/es/tag";
 import AButton from "ant-design-vue/es/button";
 import AAlert from "ant-design-vue/es/alert";
 import { ref, computed, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { state, refreshDirectory, zh } from "../state";
 import { request, type Page } from "../api/client";
 import { field, type FormSpec } from "../forms";
 import { useReadScope } from "../composables/readScope";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
+const route = useRoute(), router = useRouter();
 const auditMember = ref("");
 const members = ref<any[]>([]),
-  projectId = ref(state.projectId || state.projects[0]?.id || ""),
+  projectId = ref(typeof route.query.projectId === "string" ? route.query.projectId : state.projectId || state.projects[0]?.id || ""),
   active = ref(""),
   cursor = ref<string | null>(null),
   error = ref(""),
@@ -58,8 +60,16 @@ async function load(more = false) {
     });
   }
 }
+watch(() => route.query.projectId, (id) => {
+  projectId.value = typeof id === "string" ? id : "";
+  form.value = undefined;
+});
+function selectProject(id: unknown) {
+  router.replace({path:'/members',query:{projectId:typeof id === 'string' ? id : ''}});
+}
 watch([projectId, active], () => load(), { immediate: true });
 function open(a: string, m?: any) {
+  if (a === "roles" && (!project.value || project.value.archived || !state.member?.isAdmin)) return;
   ticket.value = "";
   formKey.value = a + ":" + (m?.id ?? "new") + ":" + projectId.value;
   version.value =
@@ -183,13 +193,18 @@ async function saved(r: any) {
       >打开本人{{ ticketKind === "activate" ? "激活" : "重置" }}表单</RouterLink
     ><AButton @click="ticket = ''">隐藏票据</AButton>
   </section>
+  <p v-if="project"><RouterLink :to="'/projects/' + project.id">返回项目 · {{ project.name }}</RouterLink></p>
+  <AAlert v-if="!project" type="info" message="请先选择有效项目，再调整项目角色。" />
+  <AAlert v-else-if="project.archived" type="warning" message="此项目已归档，角色授权只读。管理员恢复项目后可调整。" />
+  <p v-else>当前授权项目：{{ project.name }}。逐个成员明确选择项目角色；创建项目或成员不会自动授予业务角色。</p>
   <section class="panel">
     <div class="filters" style="padding-top: 20px">
       <div>
         <label for="member-project">授权项目</label
         ><ASelect
           id="member-project"
-          v-model:value="projectId"
+          :value="projectId"
+          @update:value="selectProject"
           :options="state.projects.map((p) => ({ value: p.id, label: p.name }))"
         />
       </div>
@@ -260,7 +275,8 @@ async function saved(r: any) {
           ><div class="toolbar" style="margin: 0">
             <AButton @click="open('rename', m)">改名</AButton
             ><AButton
-              v-if="m.active && !project?.archived"
+              v-if="m.active"
+              :disabled="!project || !!project.archived"
               @click="open('roles', m)"
               >授权</AButton
             ><AButton v-if="m.active" @click="open('reset', m)"

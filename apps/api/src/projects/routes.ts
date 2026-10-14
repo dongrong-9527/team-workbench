@@ -17,6 +17,7 @@ import {
   createProject,
   changeProject,
   renameProject,
+  editProject,
 } from "./service.js";
 const allowed: Role[] = ["product", "frontend", "backend", "test"];
 function roleList(value: unknown): Role[] {
@@ -52,6 +53,14 @@ export function projectRoutes(app: FastifyInstance, db: Database) {
         text(request.params.id, 1, 128),
         text(b.name, 1, 120),
       );
+    },
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/projects/:id/edit", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) => {
+      const ctx = mutationContext(db, request, true);
+      const b = fields(request.body, ["expectedVersion", "name", "description"]);
+      return editProject(db, ctx, text(request.params.id, 1, 128),
+        text(b.name, 1, 120), narrative(b.description, 0, 2000));
     },
   );
   app.post("/api/projects", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) => {

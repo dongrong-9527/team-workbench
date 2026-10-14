@@ -135,11 +135,8 @@ test("task_10 member project roles ignore an older pending project response", as
   await action(page, "新建项目");
   await page.getByLabel("项目名称", { exact: true }).fill("目录竞态的合成项目");
   await submit(page, "确认新建项目");
-  const projectLink = page.getByRole("link", {
-    name: "目录竞态的合成项目 ↗",
-    exact: true,
-  });
-  const id = (await projectLink.getAttribute("href"))!.split("/").at(-1)!;
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/);
+  const id = page.url().split("/").at(-1)!;
   await page.goto("/members");
   await selectOption(page, "授权项目", {
     value: id,

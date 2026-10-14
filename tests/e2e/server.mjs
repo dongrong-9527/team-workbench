@@ -50,9 +50,20 @@ const web = await createServer({
     proxy: { "/api": { target: "http://127.0.0.1:4174" } },
   },
 });
+const { startBootstrapFixture } = await loader.ssrLoadModule('/tests/e2e/bootstrap-fixture.ts');
+const bootstrapApi = await startBootstrapFixture(dir);
+const bootstrapWeb = await createServer({
+  root: 'apps/web', configFile: 'apps/web/vite.config.ts',
+  server: {host:'127.0.0.1',port:4175,strictPort:true,
+    https:{key:readFileSync(join(dir,'key.pem')),cert:readFileSync(join(dir,'cert.pem'))},
+    proxy:{'/api':{target:'http://127.0.0.1:4176'}}},
+});
+await bootstrapWeb.listen();
 await web.listen();
 console.log("Synthetic HTTPS browser fixture ready");
 async function close() {
+  await bootstrapWeb.close();
+  await bootstrapApi.close();
   await web.close();
   await api.close();
   await loader.close();

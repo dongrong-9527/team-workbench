@@ -340,9 +340,8 @@ test("task_10 double click and lost successful response replay one command; arch
   await action(page, "新建项目");
   await page.getByLabel("项目名称", { exact: true }).fill("合成归档项目");
   await submit(page, "确认新建项目");
-  await page
-    .getByRole("link", { name: "合成归档项目 ↗", exact: true })
-    .click();
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/);
+  await expect(page.getByRole("heading", { name: "合成归档项目", exact: true })).toBeVisible();
   await action(page, "归档项目");
   await expect(page.getByText(/归档后所有成员只能阅读/)).toBeVisible();
   await submit(page, "确认归档项目");

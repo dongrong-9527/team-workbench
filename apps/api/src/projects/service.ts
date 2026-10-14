@@ -204,3 +204,38 @@ export function renameProject(
     },
   );
 }
+
+export function editProject(
+  db: Database,
+  ctx: MutationContext,
+  id: string,
+  name: string,
+  description: string,
+) {
+  return mutate(
+    db,
+    {
+      ...ctx,
+      authorize: (c) => {
+        ctx.authorize(c);
+        createPolicy(c).authorize(ctx.actorId, "manageProject", {
+          kind: "project",
+          id,
+        });
+      },
+    },
+    () => {
+      const old = getProject(db, id);
+      version(ctx, old);
+      if (old.name === name && old.description === description) return old;
+      const before = snapshot(db, id);
+      db.prepare("UPDATE projects SET name=?,description=?,version=version+1 WHERE id=?").run(
+        name,
+        description,
+        id,
+      );
+      event(db, ctx, id, "projectEdited", before);
+      return getProject(db, id);
+    },
+  );
+}

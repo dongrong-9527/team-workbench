@@ -29,7 +29,7 @@ const route = useRoute(),
   formKey = ref(""),
   notice = ref("");
 const projectId = computed(() =>
-  String(route.params.id ?? state.projectId ?? ""),
+  String(route.params.id ?? (route.query.view === "all" ? "" : state.projectId) ?? ""),
 );
 const canManage = computed(() =>
   overview.value?.myRoles.some((r: any) => r.role === "product" || r.lead),
@@ -118,7 +118,9 @@ function projectAction(a: string) {
     title:
       a === "create"
         ? "新建项目"
-        : a === "rename"
+        : a === "edit"
+          ? "编辑项目"
+          : a === "rename"
           ? "重命名项目"
           : a === "archive"
             ? "归档项目"
@@ -129,10 +131,10 @@ function projectAction(a: string) {
       a === "archive"
         ? "归档后所有成员只能阅读项目历史，业务写入会被拒绝。"
         : undefined,
-    fields: ["create", "rename"].includes(a)
+    fields: ["create", "rename", "edit"].includes(a)
       ? [
-          field("name", "项目名称"),
-          ...(a === "create"
+          field("name", "项目名称", "text", true, { max: 120 }),
+          ...(["create", "edit"].includes(a)
             ? [
                 field("description", "项目简介", "textarea", false, {
                   max: 2000,
@@ -141,9 +143,9 @@ function projectAction(a: string) {
             : []),
         ]
       : [],
-    initial: { name: p?.name ?? "", description: "" },
+    initial: { name: p?.name ?? "", description: p?.description ?? "" },
     body: (v) =>
-      a === "create"
+      ["create", "edit"].includes(a)
         ? { name: v.name, description: v.description }
         : a === "rename"
           ? { name: v.name }
@@ -151,12 +153,14 @@ function projectAction(a: string) {
   };
 }
 async function saved(result: any) {
+  const newProject = formKey.value.startsWith("project:create:");
   const newObject = formKey.value.startsWith("create:");
   const newKind = formKey.value.split(":")[1];
   form.value = undefined;
   notice.value = "已保存";
   await refreshDirectory();
-  if (newObject) await router.push(`/${newKind}/${result.id}`);
+  if (newProject) await router.push(`/projects/${result.id}`);
+  else if (newObject) await router.push(`/${newKind}/${result.id}`);
   else await load();
 }
 </script>
@@ -235,9 +239,9 @@ async function saved(result: any) {
       ><template v-if="state.member?.isAdmin"
         ><AButton
           v-if="!overview.project.archived"
-          @click="projectAction('rename')"
+          @click="projectAction('edit')"
         >
-          重命名项目</AButton
+          编辑项目</AButton
         ><AButton
           @click="
             projectAction(overview.project.archived ? 'restore' : 'archive')
@@ -247,6 +251,17 @@ async function saved(result: any) {
         </AButton></template
       >
     </div>
+    <section class="panel panel-body" aria-label="项目协作与权限">
+      <h2>项目协作与权限</h2>
+      <p v-if="!overview.myRoles.length">当前项目尚未授予你业务角色，可阅读项目与生成日报。管理员身份只提供成员、项目与授权管理权限。</p>
+      <p v-else>你的项目角色：{{ overview.myRoles.map((r: any) => zh(r.role) + (r.lead ? '负责人' : '')).join('、') }}</p>
+      <p>产品或对应职责负责人可录入、细化需求与拆分任务；需求不支持认领。对应角色成员可在任务或 Bug 详情中认领未分配工作，产品或对应负责人可分配给有效的对应角色成员。Bug 须先由产品或测试确认，才能认领。产品最终验收须独立于实际开发或修复人员。</p>
+      <div class="toolbar">
+        <RouterLink v-if="state.member?.isAdmin" :to="{path:'/members',query:{projectId:overview.project.id}}">管理本项目成员与角色</RouterLink>
+        <span v-else>需要执行权限时，请联系管理员配置本项目角色。</span>
+        <RouterLink :to="{path:'/projects',query:{view:'all'}}">查看全部项目</RouterLink>
+      </div>
+    </section>
     <div class="metrics">
       <div class="metric" v-for="k in ['requirement', 'task', 'bug']">
         <span>{{ zh(k) }} · 全部状态</span

@@ -78,6 +78,7 @@ const names: Record<string, string> = {
   projectRolesChanged: "调整项目权限",
   projectArchived: "归档项目",
   projectRestored: "恢复项目",
+  projectEdited: "项目编辑",
   projectRenamed: "项目改名",
   deactivate: "停用成员",
   reset: "签发重置票据",

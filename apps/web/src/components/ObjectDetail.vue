@@ -320,6 +320,16 @@ function split() {
         </div>
       </dl>
     </section>
+    <section class="panel panel-body" aria-label="协作操作说明">
+      <p v-if="!roles.length">你在本项目没有业务角色，可阅读历史；请联系管理员明确配置所需角色。</p>
+      <p v-if="kind === 'requirement'">需求由项目产品或对应职责负责人细化与拆分，不支持认领。指定产品验收人须独立于实际开发或修复人员。</p>
+      <template v-else>
+        <p v-if="kind === 'bug' && o.state === 'unconfirmed'">新登记的 Bug 须先由项目产品或测试确认，再由对应修复角色认领。</p>
+        <p>认领需要本项目的{{ zh(scope) }}角色，且工作处于{{ zh(kind === 'task' ? 'pending' : 'ready') }}、未分配状态。产品或对应职责负责人可通过分配指定有效的对应角色成员。</p>
+        <p v-if="kind === 'task' && parent">关联需求须已确认范围、未阻塞且处于可执行或进行中，任务才能认领或开始；请先在关联需求详情确认这些条件。</p>
+      </template>
+      <RouterLink v-if="state.member?.isAdmin" :to="{path:'/members',query:{projectId:o.projectId}}">管理本项目成员与角色</RouterLink>
+    </section>
     <div class="toolbar">
       <AButton
         v-for="a in actions"
