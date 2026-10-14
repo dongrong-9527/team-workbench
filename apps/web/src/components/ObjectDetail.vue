@@ -40,6 +40,7 @@ const o = ref<any>(),
   refresh = ref(0),
   notice = ref(""),
   tab = ref("details");
+const detailReady = computed(() => !!o.value && !busy.value && !error.value);
 const plural = computed(() =>
   props.kind === "requirement"
     ? "requirements"
@@ -230,6 +231,7 @@ const related = computed(() => {
   });
 });
 function open(a: string, correction?: WorkUpdate) {
+  if (!detailReady.value) return;
   action.value = a;
   draftAction.value = correction
     ? `${a}:correction:${correction.logicalId}`
@@ -251,6 +253,7 @@ async function saved(result: any) {
   await load();
 }
 function split() {
+  if (!detailReady.value) return;
   action.value = "createTask";
   draftAction.value = "createTask";
   form.value = createForm("task", o.value.projectId, o.value.id);
@@ -283,6 +286,7 @@ function split() {
       </div>
       <AButton @click="load" :disabled="busy">刷新详情</AButton>
     </div>
+    <p v-if="busy" role="status">正在刷新详情，完成后可继续操作。</p>
     <p v-if="notice" class="success" role="status">{{ notice }}</p>
     <p v-if="project?.archived" class="danger-note">
       项目已归档，当前保留只读历史。
@@ -334,6 +338,7 @@ function split() {
       <AButton
         v-for="a in actions"
         @click="open(a)"
+        :disabled="!detailReady"
         :type="
           ['submit', 'claim', 'acceptance', 'update'].includes(a)
             ? 'primary'
@@ -346,6 +351,7 @@ function split() {
       ><AButton
         v-if="kind === 'requirement' && manage && !project?.archived"
         @click="split"
+        :disabled="!detailReady"
       >
         拆分任务
       </AButton>
@@ -542,6 +548,7 @@ function split() {
             <AButton
               v-if="!project?.archived && roles.length"
               @click="open('update', u)"
+              :disabled="!detailReady"
             >
               更正此条更新
             </AButton>
