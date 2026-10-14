@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures.js';
+import sharp from 'sharp';
 import { login, action, submit, selectOption } from './helpers.js';
 
 for (const failedRefresh of [false, true]) {
@@ -29,11 +30,15 @@ for (const failedRefresh of [false, true]) {
       await held;
       await expect(page.getByRole('button',{name:'分配',exact:true})).toBeDisabled();
       await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button',{name:'选择图片',exact:true})).toHaveCount(0);
+      await expect(page.getByRole('button',{name:'上传图片',exact:true})).toHaveCount(0);
       release();
       await page.unrouteAll({behavior:'wait'});
       if (failedRefresh) {
         await expect(page.getByRole('alert')).toContainText('Synthetic refresh unavailable');
         await expect(page.getByRole('button',{name:'分配',exact:true})).toBeDisabled();
+        await expect(page.getByRole('button',{name:'选择图片',exact:true})).toHaveCount(0);
+        await expect(page.getByRole('button',{name:'上传图片',exact:true})).toHaveCount(0);
         await page.getByRole('button',{name:'重试读取',exact:true}).click();
       }
       await action(page,'分配');
@@ -47,6 +52,16 @@ for (const failedRefresh of [false, true]) {
       expect(response.status()).toBe(200);
       expect(await response.json()).toMatchObject({version:3,ownerId:'dev'});
       await expect(page.getByRole('heading',{name:'版本冲突：请核对最新记录'})).toHaveCount(0);
+      const panel = page.getByRole('region',{name:'图片附件'});
+      await expect(panel.getByRole('button',{name:'选择图片',exact:true})).toBeEnabled();
+      const png = await sharp({create:{width:8,height:8,channels:3,background:'#5577aa'}}).png().toBuffer();
+      await panel.getByLabel('选择图片').setInputFiles({name:'synthetic-refresh.png',mimeType:'image/png',buffer:png});
+      const uploaded = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/objects/bug/'+id+'/attachments');
+      await panel.getByRole('button',{name:'上传图片',exact:true}).click();
+      const imageResponse = await uploaded;
+      expect(new URL(imageResponse.url()).searchParams.get('expectedVersion')).toBe('3');
+      expect(imageResponse.status()).toBe(200);
+      await expect(panel.getByText('图片已保存',{exact:true})).toBeVisible();
     } finally { release?.(); await page.unrouteAll({behavior:'wait'}); }
   });
 }

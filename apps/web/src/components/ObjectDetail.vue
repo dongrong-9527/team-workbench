@@ -387,7 +387,7 @@ function split() {
       :kind="kind"
       :id="o.id"
       :version="o.version"
-      :can-upload="!!roles.length && !project?.archived"
+      :can-upload="detailReady && !!roles.length && !project?.archived"
       @uploaded="refresh++" />
     <div class="detail-layout">
       <div>
