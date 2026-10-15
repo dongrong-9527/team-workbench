@@ -5,7 +5,7 @@ import { lstat, readFile, readdir, writeFile, copyFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const SOURCE_SHA = 'f973ea310b08be5a0e996b4f945d32a1f10b3513';
+export const SOURCE_SHA = '466eea79cb75d92a964f9369c470711c070d8450';
 export const BUILD_IMAGE = 'node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0';
 const LOCK_SHA = '9026d8bda8f411022b59090930440943777ebd74cd41e3704a47835058f30a00';
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
