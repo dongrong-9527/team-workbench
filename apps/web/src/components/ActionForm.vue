@@ -48,10 +48,17 @@ const creationKind = computed(
       "/api/bugs": "bug",
     })[props.spec.path as "/api/requirements" | "/api/tasks" | "/api/bugs"],
 );
-// Standalone evidence and final product acceptance are page forms. Task/Bug
-// check and verify commands still use their existing action-modal endpoints.
+// Presentation follows the entry's initial context. Editing or restoring a
+// relationship field must never change the form's container mid-command.
+const splitTaskDrawer = computed(
+  () =>
+    props.spec.path === "/api/tasks" &&
+    typeof props.spec.initial.requirementId === "string" &&
+    !!props.spec.initial.requirementId.trim(),
+);
+// Standalone evidence and final product acceptance remain page forms.
 const pageFormKind = computed(() =>
-  creationKind.value
+  creationKind.value && !splitTaskDrawer.value
     ? "creation"
     : props.spec.path === "/api/tests"
       ? "test"
@@ -106,7 +113,19 @@ const evidenceTotals = computed(() => {
     remaining: criteria.filter((row) => row.passed !== true).length,
   };
 });
-const progressDrawer = computed(() => props.spec.path === "/api/updates");
+const progressDrawer = computed(() => {
+  if (props.spec.path === "/api/updates" || splitTaskDrawer.value) return true;
+  if (!/^\/api\/(tasks|bugs)\/[^/]+\/actions$/.test(props.spec.path))
+    return false;
+  const action = props.spec.body(props.spec.initial).action;
+  return [
+    "submit",
+    "checkPass",
+    "checkFail",
+    "verifyPass",
+    "verifyFail",
+  ].includes(String(action));
+});
 const creationProject = computed(() => {
   if (!creationKind.value) return undefined;
   // Creation specs carry project context in their existing pure body projection.
@@ -142,7 +161,7 @@ const presentationProps = computed(() =>
           open: true,
           title: props.spec.title,
           placement: "right",
-          width: 560,
+          width: 540,
           closable: !busy.value,
           maskClosable: false,
           keyboard: !busy.value,
@@ -163,7 +182,8 @@ const presentationProps = computed(() =>
         },
 );
 const fieldSections = computed(() => {
-  const kind = creationKind.value;
+  const kind =
+    pageFormKind.value === "creation" ? creationKind.value : undefined;
   if (!kind && !evidencePage.value)
     return [{ title: "", fields: props.spec.fields }];
   const definitions =
@@ -512,8 +532,14 @@ onUnmounted(() => {
         >
           <div class="mutation-scroll">
             <p class="mutation-required-note">* 为必填项，其余可选。</p>
-            <p v-if="spec.description && !evidencePage" class="mutation-object">
-              {{ spec.description }}
+            <p
+              v-if="(spec.description || splitTaskDrawer) && !evidencePage"
+              class="mutation-object"
+            >
+              {{
+                spec.description ||
+                `从需求 ${spec.initial.requirementId} 拆分执行任务 · ${creationProject?.name ?? "当前项目"}`
+              }}
             </p>
             <AAlert
               v-if="spec.impact"
@@ -859,7 +885,7 @@ onUnmounted(() => {
           </div>
         </AForm>
         <aside
-          v-if="creationKind"
+          v-if="pageFormKind === 'creation'"
           class="creation-guide"
           aria-label="创建填写指引"
         >
@@ -1390,6 +1416,9 @@ onUnmounted(() => {
 }
 .workbench-progress-drawer .ant-drawer-content-wrapper {
   max-width: 100vw;
+}
+.workbench-progress-drawer .ant-drawer-content {
+  max-width: 100%;
 }
 .workbench-progress-drawer.ant-drawer {
   max-width: none;

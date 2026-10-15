@@ -1261,7 +1261,7 @@ footer {
   .mutation-modal .ant-select {
     font-size: 16px;
   }
-  .mutation-modal {
+  .mutation-modal.ant-modal {
     max-width: calc(100vw - 24px);
   }
   .navigation-drawer .ant-drawer-content-wrapper {
