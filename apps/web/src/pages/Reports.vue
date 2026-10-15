@@ -2,9 +2,13 @@
 import ATag from "ant-design-vue/es/tag";
 import ADatePicker from "ant-design-vue/es/date-picker";
 import AInput, { Textarea as ATextarea } from "ant-design-vue/es/input";
-import ACheckbox, {
-  CheckboxGroup as ACheckboxGroup,
-} from "ant-design-vue/es/checkbox";
+import ASelect from "ant-design-vue/es/select";
+import {
+  HistoryOutlined,
+  ReloadOutlined,
+  CopyOutlined,
+  FileTextOutlined,
+} from "@ant-design/icons-vue";
 import AModal from "ant-design-vue/es/modal";
 import AButton from "ant-design-vue/es/button";
 import AAlert from "ant-design-vue/es/alert";
@@ -47,7 +51,8 @@ const date = ref(saved?.date ?? today()),
   notice = ref(""),
   busy = ref(false),
   manualCopy = ref(false),
-  tab = ref("editor"),
+  sourcePanel = ref<HTMLElement>(),
+  historyPanel = ref<HTMLElement>(),
   conflict = ref<Record<string, unknown>>(),
   confirmRegenerate = ref(false),
   regenerateIntent = ref(true),
@@ -409,17 +414,22 @@ async function latest() {
 }
 </script>
 <template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">有来源的汇总 · 人工核对</span>
-      <h1>日报工作区</h1>
-      <p>选择成员与项目，生成可追溯的纯文本草稿。</p>
-    </div>
-    <ATag>{{ timeZone }}</ATag>
-  </div>
-  <section class="panel panel-body">
-    <div class="form-grid">
+  <div class="reports-page">
+    <div class="page-heading">
       <div>
+        <span class="eyebrow">DAILY REPORT</span>
+        <h1>微信日报</h1>
+        <p>从实际记录生成草稿，核对来源后复制到微信。</p>
+      </div>
+      <AButton
+        @click="
+          historyPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        "
+        ><HistoryOutlined aria-hidden="true" />历史版本</AButton
+      >
+    </div>
+    <section class="panel report-filters" aria-label="日报生成范围">
+      <div class="report-filter date-filter">
         <label for="report-date">报告日期</label
         ><ADatePicker
           id="report-date"
@@ -427,120 +437,136 @@ async function latest() {
           @update:value="date = typeof $event === 'string' ? $event : ''"
           value-format="YYYY-MM-DD"
           format="YYYY-MM-DD"
+          :disabled="busy"
         />
       </div>
-      <div>
+      <div class="report-filter member-filter">
+        <label for="report-members">成员范围</label>
+        <ASelect
+          id="report-members"
+          v-model:value="memberIds"
+          mode="multiple"
+          :disabled="busy"
+          :max-tag-count="1"
+          :max-tag-text-length="12"
+          placeholder="选择成员"
+          :options="
+            state.members.map((m) => ({
+              value: m.id,
+              label: m.displayName + (m.active ? '' : '（已停用）'),
+            }))
+          "
+        />
+      </div>
+      <div class="report-filter project-filter">
+        <label for="report-projects">项目范围</label>
+        <ASelect
+          id="report-projects"
+          v-model:value="projectIds"
+          mode="multiple"
+          :disabled="busy"
+          :max-tag-count="1"
+          :max-tag-text-length="12"
+          placeholder="选择项目"
+          :options="
+            state.projects.map((p) => ({
+              value: p.id,
+              label: p.name + (p.archived ? '（归档）' : ''),
+            }))
+          "
+        />
+      </div>
+      <div class="report-filter zone-filter">
         <label for="report-zone">时区</label
-        ><AInput id="report-zone" v-model:value="timeZone" required />
+        ><AInput
+          id="report-zone"
+          v-model:value="timeZone"
+          required
+          :disabled="busy"
+        />
       </div>
-      <div class="wide">
-        <h3>成员范围</h3>
-        <ACheckboxGroup v-model:value="memberIds" class="chips"
-          ><ACheckbox v-for="m in state.members" :value="m.id"
-            >{{ m.displayName }}{{ m.active ? "" : "（已停用）" }}</ACheckbox
-          ></ACheckboxGroup
-        >
-      </div>
-      <div class="wide">
-        <h3>项目范围</h3>
-        <ACheckboxGroup v-model:value="projectIds" class="chips"
-          ><ACheckbox v-for="p in state.projects" :value="p.id"
-            >{{ p.name }}{{ p.archived ? "（归档）" : "" }}</ACheckbox
-          ></ACheckboxGroup
-        >
-      </div>
-    </div>
-    <div class="form-actions">
       <AButton
         type="primary"
         :disabled="
           busy || !date || !timeZone || !memberIds.length || !projectIds.length
         "
+        :loading="busy"
         @click="generate(false)"
+        ><ReloadOutlined aria-hidden="true" />生成新日报</AButton
       >
-        生成新日报</AButton
-      ><small class="muted"
-        >空缺保持“未填写”；生成稿上限
-        {{ REPORT_TEXT_LIMITS.generated.toLocaleString() }}
-        字符单位，人工编辑另保留 10,000。</small
-      >
-    </div>
-  </section>
-  <AAlert v-if="error" type="error" show-icon role="alert"
-    ><template #message>
-      {{ error
-      }}<span v-if="error.includes('422') || error.includes('fewer')"
-        >请缩小成员或项目范围后重新生成，已填写文本不会被清空。</span
-      >
-    </template></AAlert
-  >
-  <ConflictNotice
-    v-if="conflict"
-    :current="conflict"
-    :original-version="expectedVersion"
-    @adopt="latest"
-  />
-  <AAlert v-if="metadataError" type="error" show-icon role="alert"
-    ><template #message>
-      稿件内容已保留，附加信息读取失败：{{ metadataError }}
-      <AButton
-        :disabled="busy"
-        @click="
-          loadMetadata();
-          list();
-        "
-      >
-        重试读取日报信息
-      </AButton>
-    </template></AAlert
-  >
-  <AAlert
-    v-if="notice"
-    :message="notice"
-    type="success"
-    role="status"
-    show-icon
-  />
-  <div class="detail-layout">
-    <section class="panel panel-body">
-      <template v-if="current"
-        ><div class="section-heading" style="padding: 0 0 20px">
-          <div>
-            <h2>
-              {{ current.input.date }} 日报
-              <ATag
-                >V{{ current.version }} ·
-                {{ current.edited ? "人工编辑" : "生成稿" }}</ATag
-              >
-            </h2>
-            <p>
-              创建人 {{ nameOf(current.creatorId) }} · {{ current.createdAt }}
-            </p>
-          </div>
-        </div>
-        <p class="revision">
-          来源截止 #{{ current.sourceCutoffSeq }} · 状态截止
-          {{ current.stateCutoff.time }} · 生成于 {{ current.generatedAt }}
-        </p>
-        <div class="chips">
-          <ATag>完成任务 {{ current.counts.tasksDone }}</ATag
-          ><ATag>关闭 Bug {{ current.counts.bugsClosed }}</ATag
-          ><ATag>验收需求 {{ current.counts.requirementsAccepted }}</ATag>
-        </div>
-        <AAlert v-if="sourceChanges?.changed" type="warning" show-icon
-          ><template #message>
-            有更新可重新生成。旧稿与来源快照保留不变。
-          </template></AAlert
+    </section>
+    <AAlert v-if="error" type="error" show-icon role="alert"
+      ><template #message>
+        {{ error
+        }}<span v-if="error.includes('422') || error.includes('fewer')"
+          >请缩小成员或项目范围后重新生成，已填写文本不会被清空。</span
         >
-        <div class="tabs" style="margin-top: 20px">
-          <AButton @click="tab = 'editor'">稿件编辑</AButton
-          ><AButton @click="tab = 'sources'">
-            查看来源（{{ current.sources.length }}）
-          </AButton>
+      </template></AAlert
+    >
+    <ConflictNotice
+      v-if="conflict"
+      :current="conflict"
+      :original-version="expectedVersion"
+      @adopt="latest"
+    />
+    <AAlert v-if="metadataError" type="error" show-icon role="alert"
+      ><template #message>
+        稿件内容已保留，附加信息读取失败：{{ metadataError }}
+        <AButton
+          :disabled="busy"
+          @click="
+            loadMetadata();
+            list();
+          "
+          >重试读取日报信息</AButton
+        >
+      </template></AAlert
+    >
+    <AAlert
+      v-if="notice"
+      :message="notice"
+      type="success"
+      role="status"
+      show-icon
+    />
+    <div v-if="current" class="report-columns">
+      <section
+        ref="sourcePanel"
+        class="panel report-sources"
+        aria-label="来源核对"
+        tabindex="-1"
+      >
+        <div class="report-panel-heading">
+          <h2>来源核对</h2>
+          <ATag>{{ current.sources.length }} 条来源</ATag>
         </div>
+        <SourceList :id="current.id" />
+        <p class="report-footnote">
+          没有记录时显示“未填写”，不推断没有工作。来源快照与生成截止点对应。
+        </p>
+      </section>
+      <section class="panel report-draft" aria-label="微信纯文本草稿">
+        <header class="report-draft-heading">
+          <div class="report-title-row">
+            <h2>微信纯文本草稿</h2>
+            <ATag :color="dirty ? 'orange' : 'blue'">{{
+              dirty ? "有未保存修改" : "已保存 · V" + current.version
+            }}</ATag>
+          </div>
+          <p>
+            {{ current.input.date }} ·
+            {{ current.input.memberIds.map(nameOf).join("、") }} ·
+            {{ current.input.timeZone }}
+          </p>
+          <p class="report-cutoff">
+            创建人 {{ nameOf(current.creatorId) }} ·
+            {{ current.edited ? "人工编辑" : "生成稿" }} ·
+            {{ current.createdAt }}
+          </p>
+        </header>
         <section
           v-if="recoverable.length"
-          class="panel panel-body"
+          class="report-recovery"
           aria-label="本地草稿恢复"
         >
           <h3>发现本版本的本地草稿</h3>
@@ -552,119 +578,606 @@ async function latest() {
               }}。恢复后仍需主动保存，历史稿件不会自动改变。
             </p>
             <p class="body-text">{{ draft.text.slice(0, 160) }}</p>
-            <AButton @click="restoreDraft(draft)">恢复本地草稿</AButton
-            ><AButton @click="discardDraft(draft)">丢弃本地草稿</AButton>
+            <div class="report-inline-actions">
+              <AButton @click="restoreDraft(draft)">恢复本地草稿</AButton
+              ><AButton @click="discardDraft(draft)">丢弃本地草稿</AButton>
+            </div>
           </article>
         </section>
-        <template v-if="tab === 'editor'"
-          ><label
-            >日报文本<ATextarea
-              ref="textarea"
-              :rows="18"
-              v-model:value="editor"
-              @input="persistDraft"
-              class="report-editor"
-              :readonly="!mine || busy || recoverable.length > 0"
-              :maxlength="REPORT_TEXT_LIMITS.edited"
-            />
-          </label>
+        <div class="report-editor-body">
+          <label for="report-text" class="sr-only">日报文本</label>
+          <ATextarea
+            id="report-text"
+            ref="textarea"
+            :rows="20"
+            v-model:value="editor"
+            @input="persistDraft"
+            class="report-editor"
+            :readonly="!mine || busy || recoverable.length > 0"
+            :maxlength="REPORT_TEXT_LIMITS.edited"
+          />
           <div class="editor-count">
             {{ editor.length.toLocaleString() }} /
             {{ REPORT_TEXT_LIMITS.edited.toLocaleString() }} 字符单位（UTF-16）
           </div>
-          <div class="form-actions">
-            <AButton
-              v-if="mine"
-              type="primary"
-              :disabled="busy || !dirty"
-              @click="save"
-            >
-              保存稿件版本</AButton
-            ><AButton :disabled="busy" @click="copy">复制纯文本</AButton
-            ><AButton v-if="mine" :disabled="busy" @click="generate(true)">
-              重新生成
-            </AButton>
-          </div>
-          <AButton v-if="manualCopy" @click="selectText()">
-            全选文本，手动复制
-          </AButton>
-          <p v-if="!mine" class="muted">
+          <p class="report-editor-note">
+            编辑只修改汇总稿，不更改原始进展与他人贡献。提测、测试通过、产品验收和上线分别表达。
+          </p>
+          <p v-if="!mine" class="report-editor-note">
             仅创建人可编辑和重生成此稿件。
-          </p></template
-        ><SourceList v-else :id="current.id"
-      /></template>
-      <div v-else class="empty">
-        <h2>把今天的协作汇总成一份草稿</h2>
-        <p>选择报告范围后开始生成。已有日报可从右侧打开。</p>
-      </div>
-    </section>
-    <aside>
-      <section class="panel panel-body">
-        <h2>{{ current ? "本日报版本" : "已保存日报" }}</h2>
-        <ul class="history">
-          <li v-for="r in (current ? versions : history).slice().reverse()">
-            <AButton :disabled="busy" @click="select(r)" :data-report-id="r.id">
-              {{ r.input.date }} · V{{ r.version }}
-              {{ r.edited ? "人工编辑" : "生成稿" }}</AButton
-            ><time>{{ r.createdAt }}</time
-            ><span>{{ nameOf(r.creatorId) }}</span>
-          </li>
-        </ul>
-        <AButton v-if="current" :disabled="busy" @click="closeCurrent()">
-          返回全部日报
-        </AButton>
-        <p v-if="!history.length" class="muted">暂无已保存日报</p>
+          </p>
+          <div v-if="manualCopy" class="report-copy-fallback">
+            <AButton @click="selectText()">全选文本，手动复制</AButton>
+            <p>复制受限时可手动复制，稿件与来源仍保留。</p>
+          </div>
+        </div>
+        <footer class="report-draft-actions">
+          <AButton
+            type="link"
+            @click="
+              sourcePanel?.focus();
+              sourcePanel?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start',
+              });
+            "
+            >查看来源（{{ current.sources.length }}）</AButton
+          >
+          <div class="report-inline-actions">
+            <AButton v-if="mine" :disabled="busy || !dirty" @click="save"
+              >保存稿件版本</AButton
+            >
+            <AButton type="primary" :disabled="busy" @click="copy"
+              ><CopyOutlined aria-hidden="true" />复制纯文本</AButton
+            >
+          </div>
+        </footer>
       </section>
-      <div class="hint-card">
-        <div>
-          <strong>核对后再分享</strong>
-          <p>复制仅写入剪贴板。稿件的手工改动不改变任何人的原始工作记录。</p>
+    </div>
+    <section v-else class="panel report-empty">
+      <div class="report-empty-icon">
+        <FileTextOutlined aria-hidden="true" />
+      </div>
+      <h2>把今天的协作汇总成一份草稿</h2>
+      <p>选择成员、项目与日期后生成，或从下方打开已保存日报。</p>
+      <p>所有内容都来自实际记录，空缺保持“未填写”。</p>
+    </section>
+    <section
+      v-if="current"
+      class="panel report-source-changes"
+      aria-label="来源更新与生成截止"
+    >
+      <header class="report-panel-heading">
+        <h2>来源更新与生成截止</h2>
+        <AButton v-if="mine" :disabled="busy" @click="generate(true)"
+          ><ReloadOutlined aria-hidden="true" />重新生成</AButton
+        >
+      </header>
+      <div class="report-metadata">
+        <AAlert
+          v-if="sourceChanges?.changed"
+          type="warning"
+          show-icon
+          message="来源记录有更新"
+          description="现有稿件与来源快照保持不变。重新生成将保留旧稿，并使用新的来源截止点。"
+        />
+        <p v-else-if="sourceChanges">截至本次核对，未发现来源变化。</p>
+        <div v-if="sourceChanges" class="report-change-counts">
+          <span>新增 {{ sourceChanges.added.length }}</span
+          ><span>更新 {{ sourceChanges.updated.length }}</span
+          ><span>移除 {{ sourceChanges.removed.length }}</span
+          ><span>核对时间 {{ sourceChanges.checkedAt }}</span>
+        </div>
+        <p class="report-cutoff">
+          来源截止 #{{ current.sourceCutoffSeq }} · 状态截止
+          {{ current.stateCutoff.time }} · 生成于 {{ current.generatedAt }}
+        </p>
+        <div class="report-metrics">
+          <ATag>完成任务 {{ current.counts.tasksDone }}</ATag
+          ><ATag>关闭 Bug {{ current.counts.bugsClosed }}</ATag
+          ><ATag>验收需求 {{ current.counts.requirementsAccepted }}</ATag>
         </div>
       </div>
-    </aside>
-  </div>
-  <AModal
-    :open="confirmRegenerate"
-    title="确认重新生成"
-    :footer="null"
-    :closable="!busy"
-    :mask-closable="false"
-    :keyboard="!busy"
-    destroy-on-close
-    @cancel="confirmRegenerate = false"
-  >
-    <h2>保留旧稿，再生成新版本</h2>
-    <p>
-      当前稿件包含人工修改。继续后先保存这份修改稿，再依据最新来源创建新版本。所有历史版本保持可读。
+    </section>
+    <section
+      ref="historyPanel"
+      class="panel report-history"
+      tabindex="-1"
+      aria-label="日报版本历史"
+    >
+      <header class="report-panel-heading">
+        <h2>{{ current ? "本日报版本" : "已保存日报" }}</h2>
+        <AButton v-if="current" :disabled="busy" @click="closeCurrent()"
+          >返回全部日报</AButton
+        >
+      </header>
+      <ul class="history report-history-list">
+        <li
+          v-for="r in (current ? versions : history).slice().reverse()"
+          :key="r.id"
+        >
+          <div>
+            <AButton
+              type="link"
+              :disabled="busy"
+              @click="select(r)"
+              :data-report-id="r.id"
+              >{{ r.input.date }} · V{{ r.version }}
+              {{ r.edited ? "人工编辑" : "生成稿" }}</AButton
+            >
+            <p>
+              {{ nameOf(r.creatorId) }} · <time>{{ r.createdAt }}</time>
+            </p>
+          </div>
+          <ATag v-if="current?.id === r.id" color="blue">当前查看</ATag>
+        </li>
+      </ul>
+      <p
+        v-if="!(current ? versions : history).length"
+        class="report-history-empty"
+      >
+        {{ current ? "暂无可显示的版本" : "暂无已保存日报" }}
+      </p>
+      <p class="report-footnote">
+        历史日报保留当时的文本与来源截止点，不被之后的负责人或状态变化改写。
+      </p>
+    </section>
+    <p class="report-page-note">
+      核对后再分享 · 复制仅写入剪贴板，由你手动发送。生成稿上限
+      {{ REPORT_TEXT_LIMITS.generated.toLocaleString() }}
+      字符单位，人工编辑另保留 10,000。
     </p>
-    <div class="form-actions">
-      <AButton
-        type="primary"
-        :disabled="busy"
-        :loading="busy"
-        @click="generate(regenerateIntent)"
-        >保留旧稿并重新生成</AButton
-      ><AButton
-        ref="regenerateCancel"
-        :disabled="busy"
-        @click="confirmRegenerate = false"
-        >返回编辑</AButton
-      >
-    </div>
-  </AModal>
-  <AModal
-    :open="!!navigation"
-    title="确认切换日报"
-    :footer="null"
-    :mask-closable="false"
-    destroy-on-close
-    @cancel="navigation = undefined"
-    ><p>{{ navigation?.message }}</p>
-    <div class="form-actions">
-      <AButton type="primary" @click="confirmNavigation">保留副本并继续</AButton
-      ><AButton ref="navigationCancel" @click="navigation = undefined"
-        >返回编辑</AButton
-      >
-    </div></AModal
-  >
+    <AModal
+      :open="confirmRegenerate"
+      title="确认重新生成"
+      :width="540"
+      :footer="null"
+      :closable="!busy"
+      :mask-closable="false"
+      :keyboard="!busy"
+      destroy-on-close
+      @cancel="confirmRegenerate = false"
+    >
+      <div class="report-modal-warning">
+        <strong>保留旧稿，再生成新版本</strong>
+        <p>
+          当前稿件包含人工修改。继续后先保存这份修改稿，再依据最新来源创建新版本。
+        </p>
+      </div>
+      <p class="report-modal-note">
+        新稿不会静默覆盖旧稿，也不会修改成员原始记录。所有历史版本保持可读。
+      </p>
+      <div class="report-modal-actions">
+        <AButton
+          ref="regenerateCancel"
+          :disabled="busy"
+          @click="confirmRegenerate = false"
+          >返回编辑</AButton
+        ><AButton
+          type="primary"
+          :disabled="busy"
+          :loading="busy"
+          @click="generate(regenerateIntent)"
+          >保留旧稿并重新生成</AButton
+        >
+      </div>
+    </AModal>
+    <AModal
+      :open="!!navigation"
+      title="确认切换日报"
+      :width="540"
+      :footer="null"
+      :mask-closable="false"
+      destroy-on-close
+      @cancel="navigation = undefined"
+    >
+      <div class="report-modal-warning">
+        <strong>当前内容有未保存修改</strong>
+      </div>
+      <p class="report-modal-note">{{ navigation?.message }}</p>
+      <div class="report-modal-actions">
+        <AButton ref="navigationCancel" @click="navigation = undefined"
+          >返回编辑</AButton
+        ><AButton type="primary" @click="confirmNavigation"
+          >保留副本并继续</AButton
+        >
+      </div>
+    </AModal>
+  </div>
 </template>
+<style scoped>
+.reports-page {
+  min-width: 0;
+}
+.reports-page > .ant-alert {
+  margin-bottom: 18px;
+}
+.report-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 18px 22px;
+  margin-bottom: 22px;
+}
+.report-filter {
+  min-width: 0;
+}
+.report-filter > label {
+  display: block;
+  color: #65738b;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.report-filter :deep(.ant-select),
+.report-filter :deep(.ant-picker) {
+  width: 100%;
+}
+.date-filter {
+  width: 155px;
+}
+.member-filter {
+  flex: 1 1 200px;
+}
+.project-filter {
+  flex: 1 1 190px;
+}
+.zone-filter {
+  width: 160px;
+}
+.report-columns {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+  margin-bottom: 22px;
+}
+.report-columns > * {
+  min-width: 0;
+}
+.report-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 19px 22px;
+  border-bottom: 1px solid #e4e9f1;
+}
+.report-panel-heading h2,
+.report-draft-heading h2 {
+  font-size: 15px;
+  margin: 0;
+  font-weight: 600;
+}
+.report-panel-heading .ant-tag,
+.report-title-row .ant-tag {
+  margin: 0;
+  flex-shrink: 0;
+}
+.report-sources {
+  align-self: stretch;
+}
+.report-draft-heading {
+  padding: 21px 24px 17px;
+  border-bottom: 1px solid #e4e9f1;
+}
+.report-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.report-draft-heading p {
+  margin: 8px 0 0;
+  color: #586b88;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.report-draft-heading .report-cutoff {
+  font-size: 11px;
+  color: #748199;
+}
+.report-editor-body {
+  padding: 22px 24px;
+}
+.report-editor {
+  min-height: 560px;
+  background: #fbfcff;
+  padding: 18px;
+  font-size: 13px;
+  line-height: 2;
+  font-family: inherit;
+  border: 1px solid #dbe3f0;
+  border-radius: 6px;
+  resize: vertical;
+  color: #17243b;
+}
+.editor-count {
+  font-size: 11px;
+  color: #748199;
+  text-align: right;
+  margin-top: 8px;
+}
+.report-editor-note {
+  font-size: 12px;
+  color: #65738b;
+  line-height: 1.8;
+  margin: 12px 0 0;
+}
+.report-draft-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 17px 24px;
+  border-top: 1px solid #e4e9f1;
+}
+.report-draft-actions > .ant-btn-link {
+  padding: 0;
+  font-size: 12px;
+}
+.report-inline-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.report-footnote {
+  background: #f8faff;
+  padding: 16px 22px;
+  margin: 0;
+  color: #65738b;
+  font-size: 12px;
+  line-height: 1.8;
+  border-top: 1px solid #e4e9f1;
+}
+.report-source-changes,
+.report-history {
+  margin-top: 22px;
+}
+.report-metadata {
+  padding: 20px 22px;
+  font-size: 12px;
+  color: #65738b;
+  line-height: 1.8;
+}
+.report-metadata > p {
+  margin: 0 0 10px;
+}
+.report-metadata > .ant-alert {
+  margin-bottom: 14px;
+}
+.report-change-counts {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.report-cutoff {
+  overflow-wrap: anywhere;
+}
+.report-metrics {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.report-history-list {
+  margin: 0;
+  padding: 0 22px;
+  list-style: none;
+}
+.report-history-list li {
+  padding: 16px 0;
+  border-bottom: 1px solid #e4e9f1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+.report-history-list li:last-child {
+  border-bottom: 0;
+}
+.report-history-list .ant-btn {
+  padding: 0;
+  height: auto;
+  white-space: normal;
+  font-size: 13px;
+  text-align: left;
+}
+.report-history-list p {
+  margin: 6px 0 0;
+  color: #748199;
+  font-size: 12px;
+}
+.report-history-list time {
+  display: inline;
+}
+.report-history-empty {
+  color: #748199;
+  padding: 20px 22px;
+  margin: 0;
+  font-size: 12px;
+}
+.report-page-note {
+  color: #748199;
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 18px 0 0;
+}
+.report-empty {
+  text-align: center;
+  padding: 70px 24px;
+}
+.report-empty h2 {
+  font-size: 21px;
+  margin: 20px 0 12px;
+}
+.report-empty p {
+  font-size: 13px;
+  color: #65738b;
+  margin: 8px 0;
+}
+.report-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  margin: auto;
+  border: 1px solid #dfe7f8;
+  background: #edf3ff;
+  border-radius: 20px;
+  color: #245bdb;
+  font-size: 30px;
+}
+.report-recovery {
+  padding: 20px 24px;
+  background: #fff9ee;
+  border-bottom: 1px solid #f0e1c2;
+}
+.report-recovery h3 {
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.report-recovery article + article {
+  border-top: 1px solid #f0e1c2;
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.report-recovery p {
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.report-copy-fallback {
+  padding: 14px;
+  border: 1px solid #e4e9f1;
+  border-radius: 6px;
+  margin-top: 16px;
+  background: #f8faff;
+}
+.report-copy-fallback p,
+.report-modal-note {
+  color: #65738b;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 14px 0;
+}
+.report-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.report-modal-warning {
+  background: #fff9ee;
+  border: 1px solid #f0e1c2;
+  border-radius: 7px;
+  padding: 16px 18px;
+  font-size: 13px;
+  color: #17243b;
+}
+.report-modal-warning p {
+  margin: 6px 0 0;
+  color: #65738b;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.report-sources:focus,
+.report-history:focus {
+  outline: 2px solid #93b4ff;
+  outline-offset: 3px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 1150px) {
+  .report-columns {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+  .zone-filter {
+    width: 155px;
+  }
+}
+@media (max-width: 850px) {
+  .report-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .report-draft {
+    order: -1;
+  }
+  .report-editor {
+    min-height: 470px;
+  }
+}
+@media (max-width: 600px) {
+  .report-filters {
+    padding: 16px;
+    gap: 12px 8px;
+  }
+  .date-filter {
+    width: 155px;
+  }
+  .member-filter {
+    flex-basis: 100%;
+  }
+  .project-filter {
+    flex: 1 1 calc(100% - 170px);
+  }
+  .zone-filter {
+    width: 155px;
+  }
+  .report-filters > .ant-btn {
+    margin-left: auto;
+  }
+  .report-panel-heading,
+  .report-draft-heading,
+  .report-draft-actions {
+    padding: 17px;
+  }
+  .report-editor-body {
+    padding: 17px;
+  }
+  .report-editor {
+    font-size: 16px;
+    padding: 13px;
+  }
+  .report-title-row {
+    gap: 8px;
+  }
+  .report-title-row h2 {
+    font-size: 14px;
+  }
+  .report-draft-actions > .report-inline-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .report-history-list {
+    padding: 0 17px;
+  }
+  .report-footnote,
+  .report-metadata {
+    padding: 16px 17px;
+  }
+  .report-recovery {
+    padding: 17px;
+  }
+  .report-cutoff {
+    font-size: 11px;
+  }
+  .report-modal-actions {
+    align-items: stretch;
+  }
+}
+</style>

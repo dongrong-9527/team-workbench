@@ -8,8 +8,11 @@ import {
   EditOutlined,
 } from "@ant-design/icons-vue";
 import { ref, watch, computed } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import AModal from "ant-design-vue/es/modal";
+import AInput from "ant-design-vue/es/input";
 import { request, type Page } from "../api/client";
-import { state, today } from "../state";
+import { state, objectPath, zh } from "../state";
 import { useReadScope } from "../composables/readScope";
 import AButton from "ant-design-vue/es/button";
 import ASelect from "ant-design-vue/es/select";
@@ -23,32 +26,124 @@ const items = ref<any[]>([]),
   status = ref(""),
   blocked = ref(""),
   owner = ref("");
+const route = useRoute(),
+  router = useRouter();
+const tab = computed(() =>
+  ["owned", "claim", "review"].includes(String(route.query.workTab))
+    ? String(route.query.workTab)
+    : "all",
+);
+const query = ref(""),
+  progressOpen = ref(false);
+const owned = computed(() =>
+  items.value.filter((x) => x.ownerId === state.member?.id),
+);
+const claimable = computed(() =>
+  items.value.filter((x) => {
+    const scope =
+      x.objectKind === "task" && x.kind !== "other" ? x.kind : x.role;
+    return (
+      x.objectKind !== "requirement" &&
+      !x.ownerId &&
+      !x.archived &&
+      !x.blocked &&
+      x.state === (x.objectKind === "task" ? "pending" : "ready") &&
+      state.projects
+        .find((p) => p.id === x.projectId)
+        ?.myRoles.some((r) => r.role === scope)
+    );
+  }),
+);
+const reviews = computed(() =>
+  items.value.filter(
+    (x) =>
+      (x.reviewerId === state.member?.id && x.state === "pending_check") ||
+      (x.acceptorId === state.member?.id && x.state === "pending_acceptance") ||
+      (((x.objectKind === "bug" && x.state === "pending_verify") ||
+        (x.objectKind === "requirement" &&
+          x.state === "active" &&
+          x.scopeConfirmed)) &&
+        state.projects
+          .find((p) => p.id === x.projectId)
+          ?.myRoles.some((r) => r.role === "test")),
+  ),
+);
+const visible = computed(() =>
+  (tab.value === "owned"
+    ? owned.value
+    : tab.value === "claim"
+      ? claimable.value
+      : tab.value === "review"
+        ? reviews.value
+        : items.value
+  ).filter(
+    (x) =>
+      !query.value ||
+      x.title.toLocaleLowerCase().includes(query.value.toLocaleLowerCase()) ||
+      x.id.includes(query.value),
+  ),
+);
+const tabs = computed(() => [
+  { id: "owned", label: "我负责", count: owned.value.length },
+  { id: "claim", label: "可领取", count: claimable.value.length },
+  { id: "review", label: "待我检查", count: reviews.value.length },
+  { id: "all", label: "全部相关", count: items.value.length },
+]);
+const attention = computed(() =>
+  items.value.filter(
+    (x) => x.blocked || x.flags?.inactiveOwner || x.flags?.pendingRevision,
+  ),
+);
+const progressItems = computed(() =>
+  items.value.filter(
+    (x) =>
+      !x.archived &&
+      state.projects.find((p) => p.id === x.projectId)?.myRoles.length &&
+      ["owner", "participant", "reviewer", "tester", "acceptor"].includes(
+        x.responsibility,
+      ),
+  ),
+);
 const stats = computed(() => [
   {
-    name: "当前页待推进",
-    value: items.value.filter((x) =>
-      ["pending", "active", "fixing"].includes(x.state),
-    ).length,
+    name: "我负责的未完成工作",
+    value: owned.value.length,
+    note: "当前筛选已加载的主责事项",
   },
   {
-    name: "待检查 / 验收",
-    value: items.value.filter((x) =>
-      ["pending_check", "pending_verify", "pending_acceptance"].includes(
-        x.state,
-      ),
-    ).length,
+    name: "可领取工作",
+    value: claimable.value.length,
+    note: "符合当前项目岗位与状态",
   },
   {
-    name: "需要协调",
-    value: items.value.filter(
-      (x) => x.blocked || x.flags.inactiveOwner || x.flags.pendingRevision,
-    ).length,
+    name: "待我测试或检查",
+    value: reviews.value.length,
+    note: "测试、检查与产品验收分开记录",
   },
   {
-    name: "待填今日更新",
-    value: items.value.filter((x) => x.flags.missingUpdate).length,
+    name: "我负责的阻塞工作",
+    value: owned.value.filter((x) => x.blocked).length,
+    note: "需要说明原因与协助",
   },
 ]);
+function selectTab(value: string) {
+  void router.push({
+    path: route.path,
+    query: { ...route.query, workTab: value },
+  });
+}
+watch(
+  () => route.query.progress,
+  (value) => {
+    if (value === "1") {
+      progressOpen.value = true;
+      const query = { ...route.query };
+      delete query.progress;
+      void router.replace({ path: route.path, query });
+    }
+  },
+  { immediate: true },
+);
 const reads = useReadScope(() =>
   JSON.stringify([
     state.projectId,
@@ -100,142 +195,259 @@ watch(
 <template>
   <div class="page-heading">
     <div>
-      <div class="eyebrow">{{ today() }} · 今天的协作</div>
+      <div class="eyebrow">WORKSPACE</div>
       <h1>我的工作</h1>
-      <p>先明确责任，再推进下一步。与你相关的工作，都在这里。</p>
+      <p>聚焦下一步操作，推进你负责的工作。</p>
     </div>
-    <RouterLink to="/reports" custom v-slot="{ href, navigate }"
-      ><AButton type="primary" size="large" :href="href" @click="navigate"
-        ><FileTextOutlined aria-hidden="true" />生成今日日报 ↗</AButton
-      ></RouterLink
+    <AButton @click="progressOpen = true"
+      ><EditOutlined aria-hidden="true" />填写今日进展</AButton
     >
-  </div>
-  <div class="section-caption">
-    我的工作概览 <span>以下统计仅包含当前筛选已加载的事项</span>
   </div>
   <div class="metrics">
-    <div v-for="(s, i) in stats" :key="s.name" class="metric">
-      <span>{{ s.name }}</span
-      ><strong>{{ s.value.toString().padStart(2, "0") }}</strong
-      ><span class="metric-mark" aria-hidden="true"
-        ><component
-          :is="
-            [
-              ThunderboltOutlined,
-              CheckCircleOutlined,
-              FlagOutlined,
-              EditOutlined,
-            ][i]
-          "
-      /></span>
-    </div>
-  </div>
-  <section class="panel">
-    <div class="section-heading">
-      <div>
-        <h2>
-          待办与参与事项 <ATag>{{ items.length }} 项</ATag>
-        </h2>
-        <p>主责、检查、实际参与和可认领事项分别保留责任身份</p>
-      </div>
-      <AButton @click="load()" :loading="busy" :disabled="busy"
-        ><ReloadOutlined aria-hidden="true" v-if="!busy" />刷新</AButton
-      >
-    </div>
-    <div class="filters">
-      <div>
-        <label for="work-kind">工作类型</label
-        ><ASelect
-          id="work-kind"
-          aria-label="工作类型"
-          :value="kind"
-          @update:value="kind = typeof $event === 'string' ? $event : ''"
-          allow-clear
-          :options="[
-            { value: '', label: '全部类型' },
-            { value: 'task', label: '任务' },
-            { value: 'requirement', label: '需求' },
-            { value: 'bug', label: 'Bug' },
-          ]"
-        />
-      </div>
-      <div>
-        <label for="work-owner">负责人</label
-        ><ASelect
-          id="work-owner"
-          aria-label="负责人"
-          :value="owner"
-          @update:value="owner = typeof $event === 'string' ? $event : ''"
-          allow-clear
-          :options="[
-            { value: '', label: '全部负责人' },
-            ...state.members.map((m) => ({
-              value: m.id,
-              label: m.displayName,
-            })),
-          ]"
-        />
-      </div>
-      <div>
-        <label for="work-status">状态</label
-        ><ASelect
-          id="work-status"
-          aria-label="状态"
-          :value="status"
-          @update:value="status = typeof $event === 'string' ? $event : ''"
-          allow-clear
-          :options="[
-            { value: '', label: '全部状态' },
-            { value: 'active', label: '进行中' },
-            { value: 'pending', label: '待处理' },
-            { value: 'pending_check', label: '待检查' },
-            { value: 'pending_verify', label: '待验证' },
-            { value: 'pending_acceptance', label: '待验收' },
-          ]"
-        />
-      </div>
-      <div>
-        <label for="work-blocked">阻塞</label
-        ><ASelect
-          id="work-blocked"
-          aria-label="阻塞"
-          :value="blocked"
-          @update:value="blocked = typeof $event === 'string' ? $event : ''"
-          allow-clear
-          :options="[
-            { value: '', label: '全部' },
-            { value: 'true', label: '仅阻塞' },
-            { value: 'false', label: '未阻塞' },
-          ]"
-        />
-      </div>
-    </div>
-    <p v-if="error" class="error" role="alert">
-      {{ error }} <AButton @click="load()">重试加载</AButton>
-    </p>
-    <p v-if="busy" role="status" class="empty">正在读取工作事项…</p>
-    <WorkList v-else-if="items.length" :items="items" />
-    <div v-else-if="!error" class="empty">
-      当前筛选下没有待处理事项。<RouterLink to="/projects"
-        >浏览全部项目 →</RouterLink
-      >
-    </div>
-    <AButton
-      v-if="cursor"
-      class="load-more"
-      @click="load(true)"
-      :disabled="busy"
+    <div
+      v-for="(s, i) in stats"
+      :key="s.name"
+      class="metric"
+      :class="{ warning: i === 3 }"
     >
-      加载更多
-    </AButton>
-  </section>
-  <div class="hint-card">
-    <span><EditOutlined aria-hidden="true" /></span>
-    <div>
-      <strong>把今天的实际贡献记下来</strong>
-      <p>
-        工作更新独立于任务状态。记录做了什么、下一步和需要的协助，汇总时便有据可查。
-      </p>
+      <span>{{ s.name }}</span
+      ><strong>{{ busy ? "—" : s.value }}</strong
+      ><small>{{ s.note }}</small>
     </div>
   </div>
+  <div class="work-content-layout">
+    <section class="panel work-main-panel">
+      <div class="work-tabs" role="tablist" aria-label="工作责任筛选">
+        <button
+          v-for="t in tabs"
+          :key="t.id"
+          class="work-tab"
+          role="tab"
+          :aria-selected="tab === t.id"
+          @click="selectTab(t.id)"
+        >
+          {{ t.label }}<span class="tab-count">{{ t.count }}</span>
+        </button>
+        <AButton
+          class="work-tab-refresh"
+          type="text"
+          aria-label="刷新"
+          @click="load()"
+          :loading="busy"
+          :disabled="busy"
+          ><ReloadOutlined aria-hidden="true"
+        /></AButton>
+      </div>
+      <div class="filters">
+        <div>
+          <label for="work-kind">工作类型</label
+          ><ASelect
+            id="work-kind"
+            aria-label="工作类型"
+            :value="kind"
+            @update:value="kind = typeof $event === 'string' ? $event : ''"
+            allow-clear
+            :options="[
+              { value: '', label: '全部类型' },
+              { value: 'task', label: '任务' },
+              { value: 'requirement', label: '需求' },
+              { value: 'bug', label: 'Bug' },
+            ]"
+          />
+        </div>
+        <div>
+          <label for="work-owner">负责人</label
+          ><ASelect
+            id="work-owner"
+            aria-label="负责人"
+            :value="owner"
+            @update:value="owner = typeof $event === 'string' ? $event : ''"
+            allow-clear
+            :options="[
+              { value: '', label: '全部负责人' },
+              ...state.members.map((m) => ({
+                value: m.id,
+                label: m.displayName,
+              })),
+            ]"
+          />
+        </div>
+        <div>
+          <label for="work-status">状态</label
+          ><ASelect
+            id="work-status"
+            aria-label="状态"
+            :value="status"
+            @update:value="status = typeof $event === 'string' ? $event : ''"
+            allow-clear
+            :options="[
+              { value: '', label: '全部状态' },
+              ...[
+                'pending',
+                'ready',
+                'active',
+                'fixing',
+                'pending_check',
+                'pending_verify',
+                'pending_acceptance',
+              ].map((value) => ({ value, label: zh(value) })),
+            ]"
+          />
+        </div>
+        <div>
+          <label for="work-blocked">阻塞</label
+          ><ASelect
+            id="work-blocked"
+            aria-label="阻塞"
+            :value="blocked"
+            @update:value="blocked = typeof $event === 'string' ? $event : ''"
+            allow-clear
+            :options="[
+              { value: '', label: '全部' },
+              { value: 'true', label: '仅阻塞' },
+              { value: 'false', label: '未阻塞' },
+            ]"
+          />
+        </div>
+        <div class="mobile-project-filter">
+          <label for="work-project">工作项目</label
+          ><ASelect
+            id="work-project"
+            :value="state.projectId"
+            @update:value="
+              state.projectId = typeof $event === 'string' ? $event : ''
+            "
+            allow-clear
+            :options="[
+              { value: '', label: '全部项目' },
+              ...state.projects.map((p) => ({ value: p.id, label: p.name })),
+            ]"
+          />
+        </div>
+      </div>
+      <div class="work-filter-extra">
+        <AInput
+          v-model:value="query"
+          aria-label="筛选已加载工作"
+          placeholder="筛选已加载的编号或工作标题"
+          allow-clear
+        /><span class="loaded-note"
+          >当前筛选已加载 {{ items.length }} 项{{
+            cursor ? "，还有更多" : ""
+          }}</span
+        >
+      </div>
+      <p v-if="error" class="error" role="alert">
+        {{ error }} <AButton @click="load()">重试加载</AButton>
+      </p>
+      <p v-if="busy" role="status" class="empty">正在读取工作事项…</p>
+      <WorkList v-else-if="visible.length" :items="visible" />
+      <div v-else-if="!error" class="empty">
+        当前筛选下没有待处理事项。<RouterLink to="/projects"
+          >浏览全部项目 →</RouterLink
+        ><span v-if="cursor">当前页暂无符合事项，可以继续加载。</span>
+      </div>
+      <AButton
+        v-if="cursor"
+        class="load-more"
+        @click="load(true)"
+        :disabled="busy"
+        >加载更多</AButton
+      >
+      <div class="table-footnote">
+        显示 {{ visible.length }} 项 ·
+        统计仅包含当前筛选已加载事项，保留各自责任身份。
+      </div>
+    </section>
+    <aside class="work-rail">
+      <section class="panel">
+        <div class="section-heading">
+          <h2>需要你关注</h2>
+          <ATag color="orange">{{ attention.length }} 项</ATag>
+        </div>
+        <div class="panel-body">
+          <div
+            v-for="o in attention.slice(0, 4)"
+            :key="o.id"
+            class="attention-item"
+          >
+            <span class="row-meta"
+              >{{ zh(o.objectKind) }} ·
+              {{
+                o.blocked
+                  ? "阻塞"
+                  : o.flags.inactiveOwner
+                    ? "负责人已停用"
+                    : "修订待处理"
+              }}</span
+            ><strong>{{ o.title }}</strong>
+            <p>保留现有责任与记录，进入详情查看需要的协助。</p>
+            <RouterLink :to="objectPath(o.objectKind, o.id)"
+              >查看说明 →</RouterLink
+            >
+          </div>
+          <p v-if="!attention.length">已加载事项中暂无阻塞或角色异常。</p>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="section-heading"><h2>让下一步更清楚</h2></div>
+        <div class="panel-body">
+          <h3>先拆任务，再领取执行</h3>
+          <p>
+            需求由产品或岗位负责人细化。对应岗位成员领取任务或
+            Bug；领取后再单独开始。
+          </p>
+          <h3>测试与验收分别留痕</h3>
+          <p>检查结果通过后，由独立的产品验收人核对当前修订与目标版本。</p>
+          <RouterLink to="/projects">进入项目协作 →</RouterLink>
+        </div>
+      </section>
+    </aside>
+  </div>
+  <div class="hint-card">
+    <div>
+      <strong>今天的推进，留下可核对的记录</strong>
+      <p>你的进展会汇总到微信日报；文字记录不会自动改变任务状态。</p>
+    </div>
+    <RouterLink to="/reports" custom v-slot="{ href, navigate }"
+      ><AButton :href="href" @click="navigate"
+        >生成今日日报 <FileTextOutlined aria-hidden="true" /></AButton
+    ></RouterLink>
+  </div>
+  <AModal
+    v-model:open="progressOpen"
+    title="选择要记录进展的工作"
+    :footer="null"
+    :width="540"
+  >
+    <p>选择实际参与的工作，填写今天完成的内容、下一步与需要的协助。</p>
+    <div class="progress-options">
+      <RouterLink
+        v-for="o in progressItems"
+        :key="o.id"
+        :to="{
+          path: objectPath(o.objectKind, o.id),
+          query: { action: 'update' },
+        }"
+        >{{ o.title }}</RouterLink
+      >
+    </div>
+    <p v-if="!progressItems.length" class="empty">
+      当前已加载事项中没有可填写的工作。请先进入有项目角色的工作详情。
+    </p>
+    <div class="form-actions">
+      <AButton @click="progressOpen = false">取消</AButton>
+    </div>
+  </AModal>
 </template>
+<style scoped>
+.mobile-project-filter {
+  display: none;
+}
+@media (max-width: 600px) {
+  .mobile-project-filter {
+    display: block;
+    grid-column: 1/-1;
+  }
+}
+</style>

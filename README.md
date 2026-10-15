@@ -9,7 +9,7 @@ npm run typecheck
 npm run build
 ```
 
-Configure `HOST`, `PORT`, `DATABASE_PATH` and `APP_ORIGIN` as process environment variables (see `.env.example`), then run `npm start`. `APP_ORIGIN` is the exact browser origin, including scheme and port. The service is intended for a same-origin HTTPS reverse proxy; session cookies always use Secure, HttpOnly and SameSite=Lax. The current Vue client is a foundation scaffold.
+Configure `HOST`, `PORT`, `DATABASE_PATH` and `APP_ORIGIN` as process environment variables (see `.env.example`), then run `npm start`. `APP_ORIGIN` is the exact browser origin, including scheme and port. The service is intended for a same-origin HTTPS reverse proxy; session cookies always use Secure, HttpOnly and SameSite=Lax. The Vue client uses Ant Design Vue 4.2.6 with responsive work lists, project setup, workflow forms, protected attachments and report editing.
 
 To create the first administrator, build first and run the following in a local interactive terminal against an empty database:
 
@@ -70,7 +70,7 @@ Bug and canonical test API:
 
 Requirement API: active members read `GET /api/requirements`, `/api/requirements/:id` and `/api/requirements/:id/revisions`. Product or the matching functional lead creates and refines drafts; only product designates the acceptor and confirms readiness. `POST /api/requirements/:id/actions` supports suggestChange, refine, makeReady, start, revise, cancel and restore, with expectedVersion and Idempotency-Key. makeReady requires confirmed source status (checked timestamp or unable reason), a live independent product acceptor, required criteria and execution standards. Editorial revise preserves the functional revision; behavior revise requires reason, impactConfirmed, affectedTaskIds and affectedCheckIds, advances revision and invalidates affected evidence. Cancellation explicitly cancels or detaches every unfinished linked task; Bugs remain open. Restore returns to refining without restarting tasks. Immutable revisions and scope snapshots preserve prior facts.
 
-Product acceptance API (workflow backend; the Vue client remains a scaffold):
+Product acceptance API:
 
 - `POST /api/requirements/:id/submit-acceptance` takes `{expectedVersion,revision,targetVersion}`. Product or the requirement's matching functional lead submits active work. The target build is fixed on the pending acceptance round.
 - `POST /api/requirements/:id/acceptance` takes `{expectedVersion,decision:'pass'|'return',revision,targetVersion,criteria:[{id,passed,note?}],reason?,reworkTaskIds?,bugIds?}`. Only the currently designated, active product acceptor decides. Actual immutable development/repair participation disqualifies that person, including historical detached or reassigned work; roles and assignments alone do not. A pass requires pending acceptance and every current criterion explicitly passed. Return requires explained failed criteria and existing linked unfinished rework tasks or open Bugs. It also supports recording the return after a regression has already made that submitted scope active, or returning previously accepted original-scope work. `GET /api/requirements/:id/acceptance` returns immutable decisions and their scope/evidence snapshots.
@@ -78,7 +78,7 @@ Product acceptance API (workflow backend; the Vue client remains a scaffold):
 - `POST /api/requirements/:id/bug-waivers` takes `{expectedVersion,bugId,reason,followUpOwnerId,plan}`. Product can defer an open, unblocked normal/minor Bug with a current matching-role follow-up owner. The immutable waiver binds the server's current requirement revision and Bug version; the Bug stays open. A new command cannot duplicate a waiver for that exact scope/version. Changed Bug versions, changed requirement revisions, invalid follow-up ownership, critical/blocker severity or blocking flags invalidate it.
 - Every gate-changing task, Bug, canonical test and requirement action reconciles current pending/accepted state inside its root write transaction. Effective role changes and member deactivation also recheck current eligibility; unchanged role commands retain their no-op behavior. A broken gate returns the requirement to active and retains all old acceptance records. Behavior scope changes return accepted/pending work to refining. Cancelled requirements remain cancelled while retained Bugs continue repair. Reconciliation never promotes work automatically. State, records, events, scope snapshots and idempotent responses commit or roll back together.
 
-Acceptance records describe product decisions, not deployment. This repository delivers foundation and workflow APIs plus a Vue scaffold; attachments, the full user interface and production deployment are separate work.
+Acceptance records describe product decisions, not deployment. The Vue client exposes these workflows and protected image attachments. Production deployment and user visual acceptance remain separate steps.
 
 Work updates and history API:
 
@@ -100,7 +100,9 @@ Daily report API (deterministic backend; no external AI or messaging integration
 
 ## 响应式工作台与浏览器验证
 
-前端采用 Vue 3、Vue Router、Vite 和原生 fetch；没有额外 UI 框架。主导航为我的工作、项目、日报、成员管理。详情页将主负责人、检查/验收人、状态与下一步放在正文之前；测试与产品验收分别留痕。项目角色决定动作显示，所有写入继续经过真实服务端身份、CSRF、Origin、权限、版本和幂等校验。
+前端采用 Vue 3、TypeScript、Vue Router、Vite、Ant Design Vue 4.2.6 和原生 fetch。主导航为我的工作、项目、日报、成员管理。详情页将主负责人、检查/验收人、状态与下一步放在正文之前；测试与产品验收分别留痕。项目角色决定动作显示，所有写入继续经过真实服务端身份、CSRF、Origin、权限、版本和幂等校验。
+
+工作台使用白色侧栏、冷蓝主题与 1150/850/600px 响应式断点；手机列表转换为工作卡片，平板表格支持键盘横向滚动。需求、任务和 Bug 创建使用整页表单，工作更新使用右侧抽屉；短确认操作使用弹窗。项目页提供需求、任务、Bug、测试验收、设置和角色配置入口；首次创建的成功引导不会自动授予业务角色。我的工作保留全部相关事项，同时提供主责、可领取和待检查页签；统计明确限定为当前筛选已加载数据。
 
 普通业务表单与日报编辑稿按当前成员 ID 保存到浏览器本地，取消、导航、断网或会话过期后可以主动恢复；不会自动重放写入。另一成员登录不会使用前一成员的草稿。密码、票据、会话与 CSRF 值只在必要的内存/安全 cookie 中使用，不存入本地草稿。未改变的提交保留一个幂等键，修改内容或明确采用冲突新版本后生成新键。冲突保留用户输入并呈现服务端最新记录。日报重生成前确认人工修改，并保存旧版本；剪贴板拒绝时仍可选中文本手动复制。
 

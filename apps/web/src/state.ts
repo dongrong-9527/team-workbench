@@ -24,6 +24,7 @@ export const state = reactive({
   projectId: "",
   expired: false,
   ready: false,
+  mutationPending: false,
 });
 export async function refreshSession() {
   const s = await request<{ member: Member; csrfToken: string }>(

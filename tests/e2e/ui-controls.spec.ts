@@ -77,7 +77,7 @@ test("mobile drawer traps focus, closes on Escape and restores its trigger", asy
     drawer.locator(
       "xpath=ancestor::div[contains(@class, 'ant-drawer-content')][1]",
     ),
-  ).toHaveCSS("background-color", "rgb(14, 28, 47)");
+  ).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await drawer.getByRole("link", { name: "成员管理", exact: true }).focus();
   await page.keyboard.press("Tab");
   await expect(drawer.getByRole("link", { name: "账号设置" })).toBeFocused();

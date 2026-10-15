@@ -6,8 +6,11 @@ import {
   TeamOutlined,
   MenuOutlined,
   SearchOutlined,
+  RightOutlined,
+  EditOutlined,
+  BlockOutlined,
 } from "@ant-design/icons-vue";
-import { onMounted, ref, watch, nextTick } from "vue";
+import { computed, onMounted, ref, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { state, refreshSession } from "./state";
 import { command } from "./api/client";
@@ -58,6 +61,20 @@ const route = useRoute(),
   loading = ref(true),
   search = ref(""),
   error = ref("");
+const currentLabel = computed(() => {
+  if (route.path.startsWith("/projects/"))
+    return state.projects.find((p) => p.id === route.params.id)?.name ?? "项目";
+  if (/^\/(task|bug|requirement)\//.test(route.path)) return "工作详情";
+  return (
+    navigation.find((n) => route.path.startsWith(n.path))?.label ?? "账号设置"
+  );
+});
+const dateLabel = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  month: "long",
+  day: "numeric",
+  weekday: "short",
+}).format(new Date());
 watch(
   () => route.fullPath,
   () => {
@@ -79,6 +96,7 @@ onMounted(async () => {
   }
 });
 async function logout() {
+  if (state.mutationPending) return;
   try {
     await command().send("/api/auth/logout", {});
     state.member = null;
@@ -109,30 +127,58 @@ async function logout() {
       >
         <aside class="sidebar" :inert="navOpen">
           <RouterLink class="brand" to="/my-work"
-            ><span class="brand-icon"
-              ><AppstoreOutlined aria-hidden="true" /></span
-            ><span
-              >团队协作<span class="brand-sub">WORKBENCH</span></span
+            ><span class="brand-icon"><BlockOutlined aria-hidden="true" /></span
+            ><span class="brand-name"
+              >协作工作台<span class="brand-sub">TEAM WORKSPACE</span></span
             ></RouterLink
           >
-          <div class="workspace-label">团队工作区</div>
+          <div class="workspace-label">工作空间</div>
           <nav aria-label="主导航">
             <RouterLink
               v-for="item in navigation"
               :key="item.path"
               :to="item.path"
+              :aria-label="item.label"
+              :title="item.label"
+              :class="{
+                'router-link-active':
+                  item.path === '/projects' &&
+                  /^\/(task|bug|requirement)\//.test(route.path),
+              }"
               ><component :is="item.icon" aria-hidden="true" />
-              {{ item.label }}</RouterLink
+              <span class="nav-label">{{
+                item.path === "/reports" ? "微信日报" : item.label
+              }}</span></RouterLink
             >
           </nav>
-          <div class="sidebar-note">每一步进展<br />都有责任与来源</div>
+          <div v-if="state.projects.length" class="project-shortcuts">
+            <div class="workspace-label">项目快捷入口</div>
+            <RouterLink
+              v-for="p in state.projects.filter((p) => !p.archived).slice(0, 4)"
+              :key="p.id"
+              :to="'/projects/' + p.id"
+            >
+              <span class="project-dot" aria-hidden="true"></span
+              ><span class="project-name">{{ p.name }}</span>
+            </RouterLink>
+          </div>
+          <div class="sidebar-note">
+            <strong>记录事实，让协作更清楚</strong>
+            <p>今日进展会成为日报的来源。</p>
+            <RouterLink to="/my-work?progress=1">填写今日进展 →</RouterLink>
+          </div>
           <div class="profile">
             <AAvatar>{{ state.member.displayName.slice(0, 1) }}</AAvatar>
             <div>
               {{ state.member.displayName
               }}<RouterLink to="/password">账号设置</RouterLink>
             </div>
-            <AButton type="text" @click="logout" aria-label="退出登录">
+            <AButton
+              type="text"
+              @click="logout"
+              :disabled="state.mutationPending"
+              aria-label="退出登录"
+            >
               退出
             </AButton>
           </div>
@@ -167,7 +213,9 @@ async function logout() {
                 {{ item.label }}</RouterLink
               >
               <RouterLink to="/password">账号设置</RouterLink>
-              <AButton @click="logout">退出登录</AButton>
+              <AButton @click="logout" :disabled="state.mutationPending"
+                >退出登录</AButton
+              >
             </nav>
           </section>
         </ADrawer>
@@ -181,6 +229,13 @@ async function logout() {
               @click="navOpen = true"
               ><MenuOutlined aria-hidden="true"
             /></AButton>
+            <div class="topbar-context">
+              <RouterLink to="/my-work">工作空间</RouterLink
+              ><RightOutlined aria-hidden="true" /><span
+                class="current-crumb"
+                >{{ currentLabel }}</span
+              >
+            </div>
             <div class="global-project">
               <label for="global-project"
                 ><span aria-hidden="true">项目范围</span
@@ -217,10 +272,28 @@ async function logout() {
                 ><SearchOutlined aria-hidden="true"
               /></AButton>
             </form>
-            <span class="timezone">Asia/Shanghai</span>
+            <span class="timezone">{{ dateLabel }}</span>
+            <AButton
+              class="tablet-logout"
+              type="text"
+              @click="logout"
+              :disabled="state.mutationPending"
+              aria-label="退出登录"
+              >退出</AButton
+            >
+            <RouterLink
+              class="topbar-avatar"
+              to="/password"
+              :aria-label="state.member.displayName + '的账号设置'"
+              ><AAvatar :size="28">{{
+                state.member.displayName.slice(0, 1)
+              }}</AAvatar></RouterLink
+            >
             <div class="mobile-account">
               <RouterLink to="/password">账号设置</RouterLink
-              ><AButton @click="logout">退出登录</AButton>
+              ><AButton @click="logout" :disabled="state.mutationPending"
+                >退出登录</AButton
+              >
             </div>
           </header>
           <main id="main">
@@ -233,7 +306,10 @@ async function logout() {
             </div>
             <RouterView :key="String(state.member.id) + route.path" />
           </main>
-          <footer>团队协作工作台 · 进展由本人填写，日报由人工核对</footer>
+          <footer>
+            <span>团队协作工作台 · 进展由本人填写</span
+            ><span>日报由人工核对，手动复制微信</span>
+          </footer>
         </div>
       </div>
       <main v-else class="auth-layout"><RouterView /></main>

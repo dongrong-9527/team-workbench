@@ -80,10 +80,11 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
     .fill("完成输入校验并提供检查证据");
   await selectOption(page, "主负责人", { value: "dev", label: "陈开发" });
   await selectOption(page, "检查人", { value: "tester", label: "周测试" });
-  await submit(page, "确认新建任务"); // object detail keeps requirement after split; retrieve linked task through real list
-  await page.goto("/projects/p1");
+  await submit(page, "确认新建任务");
+  // Splitting keeps the requirement open. Follow its real child relationship,
+  // rather than assuming newly created work is on the first project-list page.
   await page
-    .getByRole("link", { name: "需求的字段校验任务", exact: true })
+    .getByRole("link", { name: "任务 · 需求的字段校验任务", exact: true })
     .click();
   await expect(page).toHaveURL(/\/task\//);
   const taskUrl = page.url(),
