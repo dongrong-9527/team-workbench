@@ -13,8 +13,8 @@ import AButton from "ant-design-vue/es/button";
 import AAlert from "ant-design-vue/es/alert";
 import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { state, refreshDirectory, zh } from "../state";
-import { request, type Page } from "../api/client";
+import { state, zh, type Member, type Project } from "../state";
+import { allPages, request, type Page } from "../api/client";
 import { field, type FormSpec } from "../forms";
 import { useReadScope } from "../composables/readScope";
 import ActionForm from "../components/ActionForm.vue";
@@ -75,6 +75,10 @@ const members = ref<any[]>([]),
   cursor = ref<string | null>(null),
   error = ref(""),
   busy = ref(false),
+  permissionsRefreshing = ref(false),
+  directoryReady = ref(false),
+  directoryError = ref(""),
+  loadedScope = ref(""),
   form = ref<FormSpec>(),
   version = ref<number>(),
   formKey = ref(""),
@@ -84,13 +88,22 @@ const members = ref<any[]>([]),
 const project = computed(() =>
   state.projects.find((p) => p.id === projectId.value),
 );
-const reads = useReadScope(() =>
-  JSON.stringify([projectId.value, active.value]),
+const scope = computed(() => JSON.stringify([projectId.value, active.value]));
+const reads = useReadScope(() => scope.value);
+const permissionReads = useReadScope(() => String(state.member?.id ?? ""));
+const writesReady = computed(
+  () =>
+    directoryReady.value &&
+    loadedScope.value === scope.value &&
+    !busy.value &&
+    !permissionsRefreshing.value &&
+    !state.mutationPending,
 );
 async function load(more = false) {
   const read = reads.begin(more);
   if (!read || (more && !cursor.value)) return;
   if (!more) {
+    loadedScope.value = "";
     members.value = [];
     cursor.value = null;
   }
@@ -105,12 +118,49 @@ async function load(more = false) {
     read.commit(() => {
       members.value = more ? [...members.value, ...p.items] : p.items;
       cursor.value = p.nextCursor;
+      loadedScope.value = scope.value;
     });
   } catch (e) {
-    if (read.valid()) error.value = (e as Error).message;
+    read.commit(() => {
+      loadedScope.value = "";
+      error.value = (e as Error).message;
+    });
   } finally {
     read.finish(() => {
       busy.value = false;
+    });
+  }
+}
+// A successful write can close its form immediately, but the next write must
+// wait for both fresh directory versions and the current scoped member rows.
+async function refreshPermissions() {
+  if (permissionsRefreshing.value) return;
+  const refresh = permissionReads.begin();
+  if (!refresh) return;
+  permissionsRefreshing.value = true;
+  directoryReady.value = false;
+  directoryError.value = "";
+  reads.invalidate();
+  busy.value = false;
+  try {
+    const [projects, directory] = await Promise.all([
+      allPages<Project>("/api/projects"),
+      allPages<Member>("/api/members"),
+    ]);
+    if (!refresh.valid()) return;
+    refresh.commit(() => {
+      state.projects = projects;
+      state.members = directory;
+      directoryReady.value = true;
+    });
+    await load();
+  } catch (e) {
+    refresh.commit(() => {
+      directoryError.value = (e as Error).message;
+    });
+  } finally {
+    refresh.finish(() => {
+      permissionsRefreshing.value = false;
     });
   }
 }
@@ -122,13 +172,23 @@ watch(
   },
 );
 function selectProject(id: unknown) {
+  if (state.mutationPending) return;
   router.push({
     path: "/members",
     query: { projectId: typeof id === "string" ? id : "" },
   });
 }
-watch([projectId, active], () => load(), { immediate: true });
+watch(
+  [projectId, active],
+  () => {
+    if (directoryReady.value) void load();
+    else if (!permissionsRefreshing.value && !directoryError.value)
+      void refreshPermissions();
+  },
+  { immediate: true },
+);
 function open(a: string, m?: any) {
+  if (!writesReady.value) return;
   if (
     a === "roles" &&
     (!project.value || project.value.archived || !state.member?.isAdmin)
@@ -208,6 +268,7 @@ function open(a: string, m?: any) {
   };
 }
 async function saved(r: any) {
+  directoryReady.value = false;
   form.value = undefined;
   ticket.value = r.activationToken ?? r.resetToken ?? "";
   ticketKind.value = r.activationToken ? "activate" : "reset";
@@ -215,8 +276,7 @@ async function saved(r: any) {
     r.ticketIssued && !ticket.value
       ? "票据已签发；重复请求只返回安全元数据。若原票据丢失，请刷新成员版本后重新签发。"
       : "操作已完成";
-  await refreshDirectory();
-  await load();
+  await refreshPermissions();
 }
 </script>
 <template>
@@ -238,6 +298,7 @@ async function saved(r: any) {
       <AButton
         v-if="state.member?.isAdmin"
         type="primary"
+        :disabled="!writesReady"
         @click="open('create')"
       >
         <UserAddOutlined aria-hidden="true" />创建成员
@@ -259,9 +320,14 @@ async function saved(r: any) {
         >{{ t.label }}</RouterLink
       >
     </nav>
-    <AAlert v-if="error" type="error" show-icon role="alert"
+    <AAlert v-if="directoryError || error" type="error" show-icon role="alert"
       ><template #message>
-        {{ error }}<AButton @click="load()">重新读取成员</AButton>
+        {{ directoryError || error
+        }}<AButton
+          :disabled="permissionsRefreshing || busy || state.mutationPending"
+          @click="refreshPermissions()"
+          >重新读取成员</AButton
+        >
       </template></AAlert
     >
     <AAlert
@@ -365,6 +431,7 @@ async function saved(r: any) {
               ><ASelect
                 id="member-project"
                 :value="projectId"
+                :disabled="state.mutationPending"
                 @update:value="selectProject"
                 :options="
                   state.projects.map((p) => ({ value: p.id, label: p.name }))
@@ -376,6 +443,7 @@ async function saved(r: any) {
               ><ASelect
                 id="member-active"
                 :value="active"
+                :disabled="state.mutationPending"
                 @update:value="
                   active = typeof $event === 'string' ? $event : ''
                 "
@@ -387,7 +455,9 @@ async function saved(r: any) {
                 ]"
               />
             </div>
-            <AButton @click="refreshDirectory().then(() => load())"
+            <AButton
+              :disabled="permissionsRefreshing || busy || state.mutationPending"
+              @click="refreshPermissions()"
               >刷新权限</AButton
             >
           </div>
@@ -457,19 +527,24 @@ async function saved(r: any) {
                 >
                 <template v-else-if="column.key === 'actions'"
                   ><div class="member-actions">
-                    <AButton type="link" size="small" @click="open('rename', m)"
+                    <AButton
+                      type="link"
+                      size="small"
+                      :disabled="!writesReady"
+                      @click="open('rename', m)"
                       >改名</AButton
                     ><AButton
                       type="link"
                       size="small"
                       v-if="m.active"
-                      :disabled="!project || !!project.archived"
+                      :disabled="!writesReady || !project || !!project.archived"
                       @click="open('roles', m)"
                       >授权</AButton
                     ><AButton
                       v-if="m.active"
                       type="link"
                       size="small"
+                      :disabled="!writesReady"
                       @click="open('reset', m)"
                       >重置密码</AButton
                     ><AButton
@@ -477,6 +552,7 @@ async function saved(r: any) {
                       type="link"
                       size="small"
                       danger
+                      :disabled="!writesReady"
                       @click="open('deactivate', m)"
                       >停用</AButton
                     >
@@ -485,7 +561,17 @@ async function saved(r: any) {
               </template></ATable
             >
           </div>
-          <p v-if="busy" class="read-status" role="status">正在读取成员…</p>
+          <p
+            v-if="permissionsRefreshing || busy"
+            class="read-status"
+            role="status"
+          >
+            {{
+              permissionsRefreshing
+                ? "正在刷新权限与成员版本…"
+                : "正在读取成员…"
+            }}
+          </p>
           <div class="member-footer">
             <span
               >已加载 {{ members.length }} 位成员{{
@@ -495,7 +581,7 @@ async function saved(r: any) {
             <AButton
               v-if="cursor"
               class="load-more"
-              :disabled="busy"
+              :disabled="busy || permissionsRefreshing || state.mutationPending"
               @click="load(true)"
             >
               更多成员

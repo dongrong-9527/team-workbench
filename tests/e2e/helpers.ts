@@ -96,10 +96,36 @@ export async function selectOption(
   }
   await control.focus();
   await control.press("ArrowDown");
-  await page
-    .locator(".ant-select-dropdown:visible")
-    .getByText(option.label, { exact: true })
-    .click();
+  const listId = await control.getAttribute("aria-controls");
+  if (!listId) throw new Error(`Select ${label} has no controlled listbox`);
+  const popup = page.locator(".ant-select-dropdown").filter({
+    has: page.locator(`[id=${JSON.stringify(listId)}]`),
+  });
+  await expect(popup).toBeVisible();
+  // Select through the control's active option. Clicking an overscan row can
+  // detach it when Ant scrolls its virtual list into the viewport.
+  const visited = new Set<string>();
+  while (true) {
+    const active = await control.getAttribute("aria-activedescendant");
+    const activeLabel = await control.evaluate((el) =>
+      document
+        .getElementById(el.getAttribute("aria-activedescendant") ?? "")
+        ?.getAttribute("aria-label"),
+    );
+    if (activeLabel === option.label) {
+      await expect(popup.locator(".ant-select-item-option-active")).toHaveText(
+        option.label,
+      );
+      await control.press("Enter");
+      await expect(popup).toBeHidden();
+      return;
+    }
+    if (!active || visited.has(active))
+      throw new Error(`Select ${label} has no enabled option ${option.label}`);
+    visited.add(active);
+    await control.press("ArrowDown");
+    await expect(control).not.toHaveAttribute("aria-activedescendant", active);
+  }
 }
 
 export async function expectSelectedOption(
