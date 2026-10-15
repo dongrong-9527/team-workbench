@@ -138,6 +138,25 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await submit(page, "确认验证通过");
   await expect(page.getByText("已关闭", { exact: true }).first()).toBeVisible();
   await login(page, "dev");
+  await page.goto(
+    "/projects/p1?tab=bugs&q=" + encodeURIComponent("空值提交未正确提示"),
+  );
+  const closedBug = page.locator(".work-row").filter({
+    has: page.locator(`a.work-title[href="${new URL(bugUrl).pathname}"]`),
+  });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const next = closedBug.getByRole("link", {
+      name: "查看详情 →",
+      exact: true,
+    });
+    await expect(next).toBeVisible();
+    await expect(next).toHaveAttribute("href", new URL(bugUrl).pathname);
+    await expect(
+      closedBug.getByRole("link", { name: "开始处理 →", exact: true }),
+    ).toHaveCount(0);
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(taskUrl);
   await action(page, "提交检查");
   await evidence(page);

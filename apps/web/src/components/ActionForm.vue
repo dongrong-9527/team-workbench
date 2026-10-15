@@ -48,6 +48,64 @@ const creationKind = computed(
       "/api/bugs": "bug",
     })[props.spec.path as "/api/requirements" | "/api/tasks" | "/api/bugs"],
 );
+// Standalone evidence and final product acceptance are page forms. Task/Bug
+// check and verify commands still use their existing action-modal endpoints.
+const pageFormKind = computed(() =>
+  creationKind.value
+    ? "creation"
+    : props.spec.path === "/api/tests"
+      ? "test"
+      : /^\/api\/requirements\/[^/]+\/acceptance$/.test(props.spec.path)
+        ? "acceptance"
+        : undefined,
+);
+const evidencePage = computed(
+  () => pageFormKind.value === "test" || pageFormKind.value === "acceptance",
+);
+const evidenceContext = computed(() => {
+  if (!evidencePage.value) return undefined;
+  const body = props.spec.body(props.spec.initial);
+  const target =
+    pageFormKind.value === "test"
+      ? (body.target as { kind: string; id: string })
+      : { kind: "requirement", id: props.spec.path.split("/")[3] };
+  return {
+    target,
+    revision: body.revision,
+    title: props.spec.initial.title || props.spec.description || target.id,
+  };
+});
+const pageTitle = computed(() =>
+  pageFormKind.value === "test"
+    ? "记录测试结论"
+    : pageFormKind.value === "acceptance"
+      ? "产品验收"
+      : creationTitle.value,
+);
+const pageSubtitle = computed(() =>
+  pageFormKind.value === "test"
+    ? "逐项记录实际结论，测试证据独立留存。"
+    : pageFormKind.value === "acceptance"
+      ? "核对当前修订的业务结果，由指定产品验收人独立记录。"
+      : creationSubtitle.value,
+);
+const evidenceTotals = computed(() => {
+  const rows: any[] = Array.isArray(values.value.checks)
+    ? values.value.checks
+    : [];
+  const criteria: any[] = Array.isArray(values.value.criteria)
+    ? values.value.criteria
+    : [];
+  return {
+    pass: rows.filter((row) => row.result === "pass").length,
+    fail: rows.filter((row) => row.result === "fail").length,
+    untested: rows.filter(
+      (row) => row.result !== "pass" && row.result !== "fail",
+    ).length,
+    reviewed: criteria.filter((row) => row.passed === true).length,
+    remaining: criteria.filter((row) => row.passed !== true).length,
+  };
+});
 const progressDrawer = computed(() => props.spec.path === "/api/updates");
 const creationProject = computed(() => {
   if (!creationKind.value) return undefined;
@@ -70,10 +128,10 @@ const creationSubtitle = computed(() =>
       : "清楚记录复现路径、预期与实际结果。",
 );
 const presentation = computed(() =>
-  creationKind.value ? "section" : progressDrawer.value ? ADrawer : AModal,
+  pageFormKind.value ? "section" : progressDrawer.value ? ADrawer : AModal,
 );
 const presentationProps = computed(() =>
-  creationKind.value
+  pageFormKind.value
     ? {
         role: "dialog",
         "aria-modal": "false",
@@ -106,51 +164,70 @@ const presentationProps = computed(() =>
 );
 const fieldSections = computed(() => {
   const kind = creationKind.value;
-  if (!kind) return [{ title: "", fields: props.spec.fields }];
+  if (!kind && !evidencePage.value)
+    return [{ title: "", fields: props.spec.fields }];
   const definitions =
-    kind === "requirement"
+    pageFormKind.value === "test"
       ? [
-          { title: "业务目标", keys: ["title", "priority", "role"] },
+          { title: "测试上下文", keys: ["targetVersion", "environment"] },
+          { title: "逐项记录结论", keys: ["checks"] },
           {
-            title: "原文与细化",
-            keys: ["sourceUrl", "sourceDescription", "description"],
+            title: "复用与缺陷关联",
+            keys: ["reusedFromId", "reuseReason", "bugId"],
           },
-          { title: "验收条目", keys: ["criteria", "acceptorId"] },
         ]
-      : kind === "task"
+      : pageFormKind.value === "acceptance"
         ? [
+            { title: "验收结论", keys: ["decision", "targetVersion"] },
+            { title: "业务验收条目", keys: ["criteria"] },
             {
-              title: "执行工作",
-              keys: ["title", "priority", "requirementId", "kind", "role"],
-            },
-            {
-              title: "完成与检查",
-              keys: [
-                "definitionOfDone",
-                "ownerId",
-                "reviewerId",
-                "required",
-                "exclusionReason",
-              ],
+              title: "验收说明与返工",
+              keys: ["reason", "reworkTaskIds", "bugIds"],
             },
           ]
-        : [
-            {
-              title: "缺陷描述",
-              keys: [
-                "title",
-                "priority",
-                "requirementId",
-                "severity",
-                "role",
-                "taskId",
-              ],
-            },
-            {
-              title: "复现与证据",
-              keys: ["reproduction", "expected", "actual", "environment"],
-            },
-          ];
+        : kind === "requirement"
+          ? [
+              { title: "业务目标", keys: ["title", "priority", "role"] },
+              {
+                title: "原文与细化",
+                keys: ["sourceUrl", "sourceDescription", "description"],
+              },
+              { title: "验收条目", keys: ["criteria", "acceptorId"] },
+            ]
+          : kind === "task"
+            ? [
+                {
+                  title: "执行工作",
+                  keys: ["title", "priority", "requirementId", "kind", "role"],
+                },
+                {
+                  title: "完成与检查",
+                  keys: [
+                    "definitionOfDone",
+                    "ownerId",
+                    "reviewerId",
+                    "required",
+                    "exclusionReason",
+                  ],
+                },
+              ]
+            : [
+                {
+                  title: "缺陷描述",
+                  keys: [
+                    "title",
+                    "priority",
+                    "requirementId",
+                    "severity",
+                    "role",
+                    "taskId",
+                  ],
+                },
+                {
+                  title: "复现与证据",
+                  keys: ["reproduction", "expected", "actual", "environment"],
+                },
+              ];
   const sections = definitions.map((section) => ({
     title: section.title,
     fields: section.keys.flatMap((key) =>
@@ -281,7 +358,7 @@ function finishPopupKeydown(event: KeyboardEvent) {
     event.stopPropagation();
     return;
   }
-  if (creationKind.value) {
+  if (pageFormKind.value) {
     event.stopPropagation();
     cancel();
   }
@@ -381,35 +458,43 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <Teleport to="#main" :disabled="!creationKind">
+  <Teleport to="#main" :disabled="!pageFormKind">
     <component
       :is="presentation"
       v-bind="presentationProps"
       class="mutation-modal workbench-action-modal"
       :class="{
         'workbench-action-modal-compact': !expandedForm,
-        'page-action-form': !!creationKind,
+        'page-action-form': !!pageFormKind,
+        'evidence-page-form': evidencePage,
       }"
     >
-      <template v-if="creationKind">
+      <template v-if="pageFormKind">
         <div class="creation-breadcrumb">
           <AButton type="link" :disabled="busy" @click="cancel"
-            >← 返回{{ creationProject?.name ?? "项目" }}</AButton
-          ><span>/ {{ creationTitle }}</span>
+            >← 返回{{
+              evidencePage ? "工作详情" : (creationProject?.name ?? "项目")
+            }}</AButton
+          ><span>/ {{ pageTitle }}</span>
         </div>
         <header class="creation-heading">
-          <span class="eyebrow"
-            >PROJECT / {{ creationProject?.id ?? "项目工作" }}</span
-          >
-          <h1>{{ creationTitle }}</h1>
-          <p>{{ creationSubtitle }}</p>
+          <span class="eyebrow">{{
+            evidencePage
+              ? "WORK / " + evidenceContext?.target.id
+              : "PROJECT / " + (creationProject?.id ?? "项目工作")
+          }}</span>
+          <h1>{{ pageTitle }}</h1>
+          <p>{{ pageSubtitle }}</p>
         </header>
-        <nav class="creation-context-nav" aria-label="当前创建类型">
+        <nav
+          class="creation-context-nav"
+          :aria-label="evidencePage ? '当前工作类型' : '当前创建类型'"
+        >
           <span>项目概览</span
           ><span :class="{ active: creationKind === 'requirement' }">需求</span
           ><span :class="{ active: creationKind === 'task' }">任务</span
           ><span :class="{ active: creationKind === 'bug' }">Bug</span
-          ><span>测试与验收</span>
+          ><span :class="{ active: evidencePage }">测试与验收</span>
         </nav>
       </template>
       <div
@@ -427,7 +512,7 @@ onUnmounted(() => {
         >
           <div class="mutation-scroll">
             <p class="mutation-required-note">* 为必填项，其余可选。</p>
-            <p v-if="spec.description" class="mutation-object">
+            <p v-if="spec.description && !evidencePage" class="mutation-object">
               {{ spec.description }}
             </p>
             <AAlert
@@ -448,7 +533,30 @@ onUnmounted(() => {
               :key="section.title"
               class="mutation-field-section"
             >
-              <h2 v-if="creationKind">{{ section.title }}</h2>
+              <h2 v-if="pageFormKind">{{ section.title }}</h2>
+              <div
+                v-if="evidencePage && sectionIndex === 0"
+                class="form-grid evidence-context-fields"
+              >
+                <AForm.Item
+                  :label="pageFormKind === 'test' ? '被测对象' : '验收对象'"
+                  html-for="evidence-target"
+                  ><AInput
+                    id="evidence-target"
+                    :value="evidenceContext?.title"
+                    disabled
+                /></AForm.Item>
+                <AForm.Item label="需求修订" html-for="evidence-revision"
+                  ><AInput
+                    id="evidence-revision"
+                    :value="
+                      evidenceContext?.revision
+                        ? 'R' + evidenceContext.revision
+                        : '独立工作，无关联需求修订'
+                    "
+                    disabled
+                /></AForm.Item>
+              </div>
               <div class="form-grid mutation-fields">
                 <template v-for="f in section.fields" :key="f.key">
                   <AForm.Item
@@ -794,6 +902,91 @@ onUnmounted(() => {
             }}
           </p>
         </aside>
+        <aside
+          v-else-if="evidencePage"
+          class="creation-guide evidence-summary"
+          :aria-label="
+            pageFormKind === 'test' ? '测试结论摘要' : '验收核对摘要'
+          "
+        >
+          <h2>{{ pageFormKind === "test" ? "结论摘要" : "验收核对摘要" }}</h2>
+          <p class="evidence-summary-caption">以下仅汇总本次填写内容。</p>
+          <template v-if="pageFormKind === 'test'">
+            <div class="evidence-summary-row">
+              <span>通过</span
+              ><strong class="evidence-count-pass"
+                >{{ evidenceTotals.pass }} 项</strong
+              >
+            </div>
+            <div class="evidence-summary-row">
+              <span>失败</span
+              ><strong class="evidence-count-fail"
+                >{{ evidenceTotals.fail }} 项</strong
+              >
+            </div>
+            <div class="evidence-summary-row">
+              <span>未测</span><strong>{{ evidenceTotals.untested }} 项</strong>
+            </div>
+            <p class="creation-permission">
+              失败与未测项不代表通过。测试证据保存后，关联对象的状态仍以服务器处理结果为准。
+            </p>
+          </template>
+          <template v-else>
+            <div class="evidence-summary-row">
+              <span>已核对</span
+              ><strong>{{ evidenceTotals.reviewed }} 项</strong>
+            </div>
+            <div class="evidence-summary-row">
+              <span>待核对</span
+              ><strong>{{ evidenceTotals.remaining }} 项</strong>
+            </div>
+            <div class="evidence-summary-row">
+              <span>本次结论</span
+              ><strong>{{
+                values.decision === "pass" ? "验收通过" : "退回返工"
+              }}</strong>
+            </div>
+            <p class="creation-permission">
+              提交时由服务器校验当前修订测试、必需任务、关联
+              Bug、阻塞情况及验收人身份与独立性。未满足条件时会显示具体拒绝原因，填写内容继续保留。
+            </p>
+          </template>
+          <dl class="evidence-context-summary">
+            <div>
+              <dt>当前对象</dt>
+              <dd>{{ evidenceContext?.title }}</dd>
+            </div>
+            <div>
+              <dt>需求修订</dt>
+              <dd>
+                {{
+                  evidenceContext?.revision
+                    ? "R" + evidenceContext.revision
+                    : "独立工作"
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>记录基于</dt>
+              <dd>对象版本 {{ version ?? "—" }}</dd>
+            </div>
+            <div>
+              <dt>目标版本</dt>
+              <dd>{{ values.targetVersion || "待填写" }}</dd>
+            </div>
+            <div>
+              <dt>当前填写人</dt>
+              <dd>{{ state.member?.displayName }}</dd>
+            </div>
+          </dl>
+          <p class="evidence-summary-caption">
+            {{
+              pageFormKind === "test"
+                ? "测试与产品验收分别留存。本人验证开发或修复结果时，由服务器标记自测。"
+                : "本次填写汇总不代表验收门禁已满足；验收通过与上线分别记录。"
+            }}
+          </p>
+        </aside>
       </div>
     </component>
   </Teleport>
@@ -1112,6 +1305,81 @@ onUnmounted(() => {
 .page-action-form .creation-guide > .creation-permission {
   margin-bottom: 0;
 }
+.evidence-page-form .evidence-context-fields {
+  gap: 0 22px;
+}
+.evidence-page-form .mutation-result {
+  padding: 18px 0;
+  border: 0;
+  border-bottom: 1px solid #e4e9f1;
+  border-radius: 0;
+  background: white;
+}
+.evidence-page-form .mutation-result:last-child {
+  margin-bottom: 0;
+}
+.evidence-page-form .evidence-row-number {
+  color: #24344d;
+}
+.evidence-page-form .mutation-result > .ant-form-item {
+  align-self: start;
+}
+.evidence-summary .evidence-summary-caption {
+  margin: 0 0 17px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: #697890;
+}
+.evidence-summary .evidence-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid #e4e9f1;
+  font-size: 13px;
+  color: #334562;
+}
+.evidence-summary .evidence-summary-row > strong {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #f1f4f9;
+  color: #617186;
+}
+.evidence-summary .evidence-summary-row > .evidence-count-pass {
+  background: #eaf7ef;
+  color: #257554;
+}
+.evidence-summary .evidence-summary-row > .evidence-count-fail {
+  background: #fff1f1;
+  color: #b34444;
+}
+.evidence-summary .creation-permission {
+  margin: 20px 0;
+}
+.evidence-summary .evidence-context-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 22px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.evidence-summary .evidence-context-summary > div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 10px;
+}
+.evidence-summary .evidence-context-summary dt {
+  color: #738097;
+}
+.evidence-summary .evidence-context-summary dd {
+  margin: 0;
+  color: #334562;
+  overflow-wrap: anywhere;
+}
 .workbench-progress-drawer .ant-drawer-header {
   padding: 23px 25px;
   border-bottom: 1px solid #e4e9f1;
@@ -1236,6 +1504,10 @@ onUnmounted(() => {
   .page-action-form .mutation-footer {
     position: sticky;
     bottom: 0;
+  }
+  .evidence-page-form .mutation-result {
+    grid-template-columns: minmax(0, 1fr) 120px;
+    gap: 12px;
   }
   .workbench-progress-drawer .ant-drawer-header {
     padding: 19px 18px;

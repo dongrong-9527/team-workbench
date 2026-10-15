@@ -29,6 +29,11 @@ function tone(s: string) {
         : undefined;
 }
 function next(o: any) {
+  if (
+    o.archived ||
+    ["done", "closed", "accepted", "cancelled", "rejected"].includes(o.state)
+  )
+    return "查看详情";
   if (o.blocked) return "查看阻塞";
   const scope = o.objectKind === "task" && o.kind !== "other" ? o.kind : o.role;
   const canClaim =
