@@ -50,9 +50,9 @@ const date = ref(saved?.date ?? today()),
   metadataError = ref(""),
   notice = ref(""),
   busy = ref(false),
+  copying = ref(false),
   manualCopy = ref(false),
   sourcePanel = ref<HTMLElement>(),
-  historyPanel = ref<HTMLElement>(),
   conflict = ref<Record<string, unknown>>(),
   confirmRegenerate = ref(false),
   regenerateIntent = ref(true),
@@ -64,14 +64,17 @@ const navigation = ref<{ message: string; action: () => void }>();
 const navigationCancel = ref<{ focus: () => void }>();
 const regenerateCancel = ref<{ focus: () => void }>();
 let confirmationTrigger: HTMLElement | undefined;
+let nextConfirmationTrigger: HTMLElement | undefined;
 watch(
   () => !!navigation.value || confirmRegenerate.value,
   async (open) => {
     if (open)
       confirmationTrigger =
-        document.activeElement instanceof HTMLElement
+        nextConfirmationTrigger ??
+        (document.activeElement instanceof HTMLElement
           ? document.activeElement
-          : undefined;
+          : undefined);
+    nextConfirmationTrigger = undefined;
     await nextTick();
     if (!alive) return;
     if (open)
@@ -90,6 +93,157 @@ function confirmNavigation() {
 function selectText() {
   textarea.value?.focus();
   textarea.value?.resizableTextArea.textArea.select();
+}
+type ReportDialog =
+  | { kind: "copy"; id: string; text: string }
+  | { kind: "history"; id?: string }
+  | { kind: "sources"; id: string };
+const reportDialog = ref<ReportDialog>(),
+  dialogBusy = ref(false),
+  dialogError = ref(""),
+  dialogVersions = ref<ReportVersion[]>([]),
+  dialogChanges = ref<ReportSourceChanges>(),
+  dialogCancel = ref<{ focus: () => void }>(),
+  manualTextarea = ref<{
+    focus: () => void;
+    resizableTextArea: { textArea: HTMLTextAreaElement };
+  }>();
+let reportDialogTrigger: HTMLElement | undefined;
+let copyGeneration = 0;
+const dialogReads = useReadScope(
+  () =>
+    `${state.member?.id}:${current.value?.id ?? ""}:${reportDialog.value?.kind ?? ""}:${reportDialog.value?.id ?? ""}`,
+);
+const reportDialogTitle = computed(() => {
+  if (reportDialog.value?.kind === "copy") return "复制失败";
+  if (reportDialog.value?.kind === "history") return "日报历史版本";
+  return dialogChanges.value?.changed ? "来源记录有更新" : "来源更新核对";
+});
+function restoreReportDialogFocus() {
+  if (
+    alive &&
+    state.member?.id === actor &&
+    !reportDialog.value &&
+    !navigation.value &&
+    !confirmRegenerate.value &&
+    reportDialogTrigger?.isConnected
+  )
+    reportDialogTrigger.focus();
+}
+function closeReportDialog() {
+  if (busy.value) return;
+  dialogReads.invalidate();
+  reportDialog.value = undefined;
+  dialogBusy.value = false;
+  dialogError.value = "";
+}
+function resetReportPresentation() {
+  copyGeneration++;
+  copying.value = false;
+  manualCopy.value = false;
+  dialogReads.invalidate();
+  reportDialog.value = undefined;
+  dialogBusy.value = false;
+  dialogError.value = "";
+  dialogChanges.value = undefined;
+  dialogVersions.value = [];
+}
+async function loadReportDialog() {
+  const dialog = reportDialog.value;
+  if (!alive || state.member?.id !== actor || !dialog || dialog.kind === "copy")
+    return;
+  const read = dialogReads.begin();
+  if (!read) return;
+  dialogBusy.value = true;
+  dialogError.value = "";
+  try {
+    if (dialog.kind === "history") {
+      const rows = await allSeqPages<ReportVersion>(
+        dialog.id ? `/api/reports/${dialog.id}/versions` : "/api/reports",
+        read.valid,
+      );
+      read.commit(() => {
+        dialogVersions.value = rows;
+      });
+    } else {
+      const changes = await request<ReportSourceChanges>(
+        `/api/reports/${dialog.id}/source-changes`,
+      );
+      read.commit(() => {
+        dialogChanges.value = changes;
+        sourceChanges.value = changes;
+      });
+    }
+  } catch (e) {
+    if (read.valid()) dialogError.value = (e as Error).message;
+  } finally {
+    read.finish(() => {
+      dialogBusy.value = false;
+    });
+  }
+}
+function openReportDialog(dialog: ReportDialog, trigger?: HTMLElement) {
+  if (
+    !alive ||
+    busy.value ||
+    state.member?.id !== actor ||
+    navigation.value ||
+    confirmRegenerate.value
+  )
+    return;
+  if (dialog.kind !== "copy") {
+    copyGeneration++;
+    copying.value = false;
+  }
+  reportDialogTrigger =
+    trigger ??
+    (document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : undefined);
+  dialogChanges.value = undefined;
+  dialogVersions.value = [];
+  dialogError.value = "";
+  reportDialog.value = dialog;
+  void loadReportDialog();
+}
+watch(reportDialog, async (dialog) => {
+  if (!dialog) return;
+  await nextTick();
+  if (!alive || reportDialog.value !== dialog) return;
+  if (dialog.kind === "copy") {
+    manualTextarea.value?.focus();
+    manualTextarea.value?.resizableTextArea.textArea.select();
+  } else dialogCancel.value?.focus();
+});
+async function selectHistoryVersion(r: ReportVersion) {
+  if (
+    !alive ||
+    state.member?.id !== actor ||
+    busy.value ||
+    dialogBusy.value ||
+    reportDialog.value?.kind !== "history"
+  )
+    return;
+  if (dirty.value) nextConfirmationTrigger = reportDialogTrigger;
+  closeReportDialog();
+  await select(r);
+}
+async function regenerateFromSources() {
+  if (
+    !alive ||
+    state.member?.id !== actor ||
+    busy.value ||
+    dialogBusy.value ||
+    !current.value ||
+    !mine.value ||
+    reportDialog.value?.kind !== "sources" ||
+    reportDialog.value.id !== current.value.id
+  )
+    return;
+  if (dirty.value || current.value.edited)
+    nextConfirmationTrigger = reportDialogTrigger;
+  closeReportDialog();
+  await generate(true);
 }
 interface LocalDraft {
   id: string;
@@ -198,6 +352,7 @@ function closeCurrent(confirmed = false) {
     return;
   }
   persistDraft();
+  resetReportPresentation();
   metadataReads.invalidate();
   current.value = undefined;
   editor.value = "";
@@ -209,6 +364,7 @@ function closeCurrent(confirmed = false) {
   persist();
 }
 function adopt(r: ReportVersion, retain = false, offerDraft = true) {
+  resetReportPresentation();
   const text = editor.value;
   current.value = r;
   editor.value = retain ? text : r.text;
@@ -381,16 +537,43 @@ async function save() {
   }
 }
 async function copy() {
+  if (
+    !alive ||
+    state.member?.id !== actor ||
+    copying.value ||
+    busy.value ||
+    !current.value
+  )
+    return;
+  const id = current.value.id,
+    text = editor.value,
+    generation = ++copyGeneration;
+  const trigger =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : undefined;
+  const valid = () =>
+    alive &&
+    state.member?.id === actor &&
+    current.value?.id === id &&
+    generation === copyGeneration;
+  copying.value = true;
   notice.value = "";
   try {
-    await navigator.clipboard.writeText(editor.value);
+    await navigator.clipboard.writeText(text);
+    if (!valid()) return;
     notice.value = "已复制";
     manualCopy.value = false;
   } catch {
+    if (!valid()) return;
     manualCopy.value = true;
     notice.value = "浏览器未允许复制，文本已保留。请选中文本后手动复制。";
     await nextTick();
+    if (!valid()) return;
     selectText();
+    openReportDialog({ kind: "copy", id, text }, trigger);
+  } finally {
+    if (valid()) copying.value = false;
   }
 }
 async function latest() {
@@ -422,9 +605,8 @@ async function latest() {
         <p>从实际记录生成草稿，核对来源后复制到微信。</p>
       </div>
       <AButton
-        @click="
-          historyPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        "
+        :disabled="busy"
+        @click="openReportDialog({ kind: 'history', id: current?.id })"
         ><HistoryOutlined aria-hidden="true" />历史版本</AButton
       >
     </div>
@@ -614,20 +796,15 @@ async function latest() {
         <footer class="report-draft-actions">
           <AButton
             type="link"
-            @click="
-              sourcePanel?.focus();
-              sourcePanel?.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start',
-              });
-            "
-            >查看来源（{{ current.sources.length }}）</AButton
+            :disabled="busy"
+            @click="openReportDialog({ kind: 'sources', id: current.id })"
+            >查看来源更新</AButton
           >
           <div class="report-inline-actions">
             <AButton v-if="mine" :disabled="busy || !dirty" @click="save"
               >保存稿件版本</AButton
             >
-            <AButton type="primary" :disabled="busy" @click="copy"
+            <AButton type="primary" :disabled="busy || copying" @click="copy"
               ><CopyOutlined aria-hidden="true" />复制纯文本</AButton
             >
           </div>
@@ -680,7 +857,6 @@ async function latest() {
       </div>
     </section>
     <section
-      ref="historyPanel"
       class="panel report-history"
       tabindex="-1"
       aria-label="日报版本历史"
@@ -727,6 +903,132 @@ async function latest() {
       {{ REPORT_TEXT_LIMITS.generated.toLocaleString() }}
       字符单位，人工编辑另保留 10,000。
     </p>
+    <AModal
+      :open="!!reportDialog"
+      :title="reportDialogTitle"
+      :width="reportDialog?.kind === 'history' ? 680 : 540"
+      :footer="null"
+      :closable="!busy"
+      :keyboard="!busy"
+      :mask-closable="false"
+      :focus-trigger-after-close="false"
+      wrap-class-name="report-inspection-modal"
+      destroy-on-close
+      @cancel="closeReportDialog"
+      :after-close="restoreReportDialogFocus"
+    >
+      <template v-if="reportDialog?.kind === 'copy'">
+        <p class="report-modal-note">
+          浏览器未允许自动复制。可选中下方纯文本手动复制，草稿与来源仍保留。
+        </p>
+        <ATextarea
+          ref="manualTextarea"
+          :value="reportDialog.text"
+          :rows="8"
+          readonly
+          aria-label="可手动复制的日报文本"
+          class="report-manual-text"
+        />
+        <div class="report-modal-actions report-modal-actions-start">
+          <AButton @click="closeReportDialog">返回草稿</AButton>
+        </div>
+      </template>
+      <template v-else>
+        <p v-if="dialogBusy" class="report-modal-note" role="status">
+          正在读取{{
+            reportDialog?.kind === "history" ? "历史版本" : "来源变化"
+          }}…
+        </p>
+        <AAlert v-if="dialogError" type="error" role="alert" show-icon>
+          <template #message
+            >{{ dialogError
+            }}<AButton @click="loadReportDialog">重试读取</AButton></template
+          >
+        </AAlert>
+        <template v-if="reportDialog?.kind === 'history'">
+          <ul class="report-dialog-history" aria-label="已保存的日报版本">
+            <li v-for="r in dialogVersions.slice().reverse()" :key="r.id">
+              <div>
+                <strong
+                  >{{ r.input.date }} · V{{ r.version }} ·
+                  {{ r.edited ? "人工编辑" : "生成稿" }}</strong
+                >
+                <p>
+                  {{ r.input.memberIds.map(nameOf).join("、") }} · 来源截止 #{{
+                    r.sourceCutoffSeq
+                  }}
+                  · {{ r.createdAt }}
+                </p>
+                <span v-if="current?.id === r.id" class="report-dialog-current"
+                  >当前查看</span
+                >
+              </div>
+              <AButton
+                size="small"
+                :disabled="busy || dialogBusy"
+                :data-report-id="r.id"
+                @click="selectHistoryVersion(r)"
+                >查看版本</AButton
+              >
+            </li>
+          </ul>
+          <p
+            v-if="!dialogBusy && !dialogError && !dialogVersions.length"
+            class="report-modal-note"
+          >
+            暂无已保存日报。
+          </p>
+          <p class="report-modal-note">
+            历史日报按当时的生成截止点反映事实，文本和来源快照不会被之后的负责人或状态变化改写。
+          </p>
+        </template>
+        <template v-else-if="dialogChanges && current">
+          <div class="report-modal-source-summary">
+            <ReloadOutlined aria-hidden="true" />
+            <div>
+              <strong>{{
+                dialogChanges.changed
+                  ? "来源记录有更新"
+                  : "截至本次核对，未发现来源变化"
+              }}</strong>
+              <p>
+                新增 {{ dialogChanges.added.length }} · 更新
+                {{ dialogChanges.updated.length }} · 移除
+                {{ dialogChanges.removed.length }}
+              </p>
+              <p>
+                当前稿件来源截止 #{{ current.sourceCutoffSeq }} · 本次核对截止
+                #{{ dialogChanges.sourceCutoffSeq }}
+              </p>
+              <p>核对时间 {{ dialogChanges.checkedAt }}</p>
+            </div>
+          </div>
+          <p class="report-modal-note">
+            现有草稿不会悄悄变化。重新生成会使用新的来源截止点，并保留旧稿；成员原始记录保持不变。
+          </p>
+        </template>
+        <div
+          class="report-modal-actions"
+          :class="{
+            'report-modal-actions-start': reportDialog?.kind === 'sources',
+          }"
+        >
+          <AButton
+            ref="dialogCancel"
+            :disabled="busy"
+            @click="closeReportDialog"
+            >返回草稿</AButton
+          >
+          <AButton
+            v-if="reportDialog?.kind === 'sources' && mine"
+            type="primary"
+            :disabled="busy || dialogBusy || !!dialogError || !dialogChanges"
+            @click="regenerateFromSources"
+            >保留旧稿并重新生成</AButton
+          >
+        </div>
+      </template>
+    </AModal>
     <AModal
       :open="confirmRegenerate"
       title="确认重新生成"
@@ -1072,6 +1374,94 @@ async function latest() {
   margin-top: 24px;
   flex-wrap: wrap;
 }
+.report-modal-actions-start {
+  justify-content: flex-start;
+}
+.report-manual-text {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.8;
+  max-height: 50vh;
+  color: #17243b;
+}
+.report-dialog-history {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.report-dialog-history li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 19px 0;
+  border-bottom: 1px solid #e4e9f1;
+}
+.report-dialog-history li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.report-dialog-history strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.report-dialog-history p {
+  font-size: 12px;
+  color: #65738b;
+  line-height: 1.8;
+  margin: 6px 0 0;
+}
+.report-dialog-history .ant-btn {
+  flex-shrink: 0;
+}
+.report-dialog-current {
+  display: inline-block;
+  margin-top: 5px;
+  color: #245bdb;
+  font-size: 11px;
+}
+.report-modal-source-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid #dbe5f8;
+  background: #f0f5ff;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.report-modal-source-summary > .anticon {
+  color: #245bdb;
+  font-size: 18px;
+  margin-top: 2px;
+}
+.report-modal-source-summary strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.report-modal-source-summary p {
+  color: #65738b;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 5px 0 0;
+}
+:global(.report-inspection-modal .ant-modal-content) {
+  padding: 0;
+  overflow: hidden;
+}
+:global(.report-inspection-modal .ant-modal-header) {
+  padding: 21px 24px;
+  border-bottom: 1px solid #e4e9f1;
+  margin: 0;
+}
+:global(.report-inspection-modal .ant-modal-title) {
+  font-size: 17px;
+}
+:global(.report-inspection-modal .ant-modal-body) {
+  padding: 22px 24px;
+}
 .report-modal-warning {
   background: #fff9ee;
   border: 1px solid #f0e1c2;
@@ -1122,6 +1512,18 @@ async function latest() {
   }
 }
 @media (max-width: 600px) {
+  .report-manual-text {
+    font-size: 16px;
+  }
+  .report-dialog-history li {
+    gap: 10px;
+  }
+  :global(.report-inspection-modal .ant-modal) {
+    max-width: calc(100vw - 24px);
+  }
+  :global(.report-inspection-modal .ant-modal-body) {
+    padding: 19px;
+  }
   .report-filters {
     padding: 16px;
     gap: 12px 8px;

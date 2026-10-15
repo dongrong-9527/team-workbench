@@ -240,8 +240,48 @@ export interface AcceptanceRecord extends AcceptanceInput {
   snapshot: Record<string, unknown>;
 }
 
+export interface AcceptanceReadiness {
+  requirement: Requirement;
+  requirementId: Id;
+  projectId: Id;
+  requirementVersion: number;
+  revision: number;
+  state: RequirementState;
+  targetVersion: string;
+  archived: boolean;
+  checkedAt: Instant;
+  ok: boolean;
+  reasons: string[];
+  total: 5;
+  satisfied: number;
+  conditions: {
+    id: "tasks" | "tests" | "bugs" | "unblocked" | "acceptor";
+    passed: boolean;
+    reasons: string[];
+  }[];
+  tasks: { required: number; completed: number };
+  criteria: {
+    passed: number;
+    failed: number;
+    untested: number;
+    required: number;
+  };
+  bugs: {
+    id: Id;
+    title: string;
+    severity: string;
+    state: string;
+    waived: boolean;
+  }[];
+  bugSummary: { open: number; criticalOpen: number; waived: number };
+  acceptor: { id: Id; name: string };
+}
+
 export type ContributionType =
-  "development" | "repair" | "testing" | "coordination";
+  | "development"
+  | "repair"
+  | "testing"
+  | "coordination";
 export interface UpdateInput {
   target: Ref;
   workDate: LocalDate;

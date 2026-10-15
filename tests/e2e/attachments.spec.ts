@@ -30,8 +30,18 @@ test("attachment retry keeps its key, failed upload preserves valid text save, a
   );
   await panel.getByRole("button", { name: "上传图片", exact: true }).click();
   await expect(panel.getByRole("alert")).toContainText("网络");
+  const uploadFailure = page.getByRole("dialog", {
+    name: "附件上传失败",
+    exact: true,
+  });
+  await expect(uploadFailure).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(uploadFailure).toHaveCount(0);
   await panel.getByRole("button", { name: "重试上传图片" }).click();
   await expect.poll(() => keys.length).toBe(2);
+  await expect(uploadFailure).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(uploadFailure).toHaveCount(0);
   expect(keys[0]).toBe(keys[1]);
   await action(page, "写工作更新");
   await page

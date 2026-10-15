@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { request, ApiError } from "../api/client";
-import { state, zh } from "../state";
+import { state, zh, beginMutation } from "../state";
 import ADrawer from "ant-design-vue/es/drawer";
 import ConflictNotice from "./ConflictNotice.vue";
+import AcceptanceReadiness from "./AcceptanceReadiness.vue";
 import AButton from "ant-design-vue/es/button";
 import AInput from "ant-design-vue/es/input";
 import ASelect from "ant-design-vue/es/select";
 import ACheckbox from "ant-design-vue/es/checkbox";
 import ADatePicker from "ant-design-vue/es/date-picker";
 import AForm from "ant-design-vue/es/form";
+import type { FormInstance } from "ant-design-vue/es/form";
 import AModal from "ant-design-vue/es/modal";
 import AAlert from "ant-design-vue/es/alert";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
@@ -71,12 +73,16 @@ const evidencePage = computed(
 );
 const evidenceContext = computed(() => {
   if (!evidencePage.value) return undefined;
+  // An explicit conflict adoption can advance the factory's captured revision.
+  // Recompute that context when the user adopts the corresponding version.
+  const contextVersion = version.value;
   const body = props.spec.body(props.spec.initial);
   const target =
     pageFormKind.value === "test"
       ? (body.target as { kind: string; id: string })
       : { kind: "requirement", id: props.spec.path.split("/")[3] };
   return {
+    version: contextVersion,
     target,
     revision: body.revision,
     title: props.spec.initial.title || props.spec.description || target.id,
@@ -162,9 +168,9 @@ const presentationProps = computed(() =>
           title: props.spec.title,
           placement: "right",
           width: 540,
-          closable: !busy.value,
+          closable: !busy.value && !otherPending.value,
           maskClosable: false,
-          keyboard: !busy.value,
+          keyboard: !busy.value && !otherPending.value && !state.expired,
           rootClassName:
             "workbench-progress-drawer mutation-modal workbench-action-modal",
           onClose: cancel,
@@ -176,7 +182,7 @@ const presentationProps = computed(() =>
           footer: null,
           closable: false,
           maskClosable: false,
-          keyboard: !busy.value,
+          keyboard: !busy.value && !otherPending.value && !state.expired,
           width: expandedForm.value ? 760 : 540,
           onCancel: cancel,
         },
@@ -274,18 +280,20 @@ const values = ref<Record<string, any>>(
   busy = ref(false),
   error = ref(""),
   conflict = ref<Record<string, unknown>>(),
-  form = ref<InstanceType<typeof AForm>>(),
+  form = ref<FormInstance>(),
   reasons = ref<any[]>([]);
+const returnConfirmation = ref(false),
+  serverGateOk = ref<boolean>();
+const otherPending = computed(() => state.mutationPending && !busy.value);
+const acceptancePassBlocked = computed(
+  () =>
+    pageFormKind.value === "acceptance" &&
+    values.value.decision === "pass" &&
+    serverGateOk.value !== true,
+);
+let active = true;
 let fingerprint = stored?.fingerprint ?? "",
   key = stored?.key ?? "";
-// Page forms leave the shell visible; session revocation must wait for writes.
-watch(
-  busy,
-  (pending) => {
-    state.mutationPending = pending;
-  },
-  { flush: "sync" },
-);
 function persist() {
   if (!props.sensitive)
     localStorage.setItem(
@@ -300,12 +308,39 @@ function persist() {
 }
 watch(values, persist, { deep: true });
 async function submit() {
+  if (busy.value || otherPending.value || state.expired) return;
+  if (
+    pageFormKind.value === "acceptance" &&
+    values.value.decision === "return"
+  ) {
+    returnConfirmation.value = true;
+    return;
+  }
+  await send();
+}
+function dismissReturn() {
+  if (!busy.value) returnConfirmation.value = false;
+}
+async function confirmReturn() {
+  if (busy.value || otherPending.value || state.expired) return;
+  try {
+    await form.value?.validate();
+  } catch {
+    returnConfirmation.value = false;
+    return;
+  }
+  await send();
+}
+async function send() {
   if (busy.value) return;
+  if (state.expired || otherPending.value || acceptancePassBlocked.value)
+    return;
   if (state.member && state.member.id !== actor) {
     error.value = "登录身份已变化，请返回本人工作草稿后再操作。";
     return;
   }
   busy.value = true;
+  const release = beginMutation();
   error.value = "";
   reasons.value = [];
   try {
@@ -333,16 +368,19 @@ async function submit() {
       headers: { "Idempotency-Key": key },
       body: JSON.stringify(body),
     });
+    if (!active || state.member?.id !== actor || state.expired) return;
     localStorage.removeItem(storageKey);
     emit("saved", result);
   } catch (e) {
+    if (!active || state.member?.id !== actor) return;
     error.value = (e as Error).message;
     if (e instanceof ApiError) {
       conflict.value = e.code === 409 ? e.current : undefined;
       reasons.value = e.reasons ?? [];
     }
   } finally {
-    busy.value = false;
+    release();
+    if (active) busy.value = false;
   }
 }
 function adopt(current: Record<string, unknown>) {
@@ -356,8 +394,14 @@ function adopt(current: Record<string, unknown>) {
     persist();
   }
 }
+function staleAcceptance(current: Record<string, unknown>) {
+  serverGateOk.value = undefined;
+  conflict.value = current;
+  error.value =
+    "验收对象已变更，填写内容已保留。请核对并采用最新版本后重新检查验收条件。";
+}
 function cancel() {
-  if (busy.value) return;
+  if (busy.value || returnConfirmation.value) return;
   persist();
   emit("cancel");
 }
@@ -372,6 +416,7 @@ function popupKeydown(event: KeyboardEvent) {
 }
 function finishPopupKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
+  if (returnConfirmation.value || state.expired || otherPending.value) return;
   const popupHandled = popupEscape;
   popupEscape = false;
   if (popupHandled) {
@@ -384,7 +429,13 @@ function finishPopupKeydown(event: KeyboardEvent) {
   }
 }
 function trapProgressFocus(event: KeyboardEvent) {
-  if (!progressDrawer.value || event.key !== "Tab" || event.defaultPrevented)
+  if (
+    state.expired ||
+    returnConfirmation.value ||
+    !progressDrawer.value ||
+    event.key !== "Tab" ||
+    event.defaultPrevented
+  )
     return;
   const dialog = form.value?.$el?.closest('[role="dialog"]') as
     | HTMLElement
@@ -458,8 +509,8 @@ const textRules = (label: string, max: number, required = false) => [
     },
   },
 ];
-onBeforeRouteLeave(() => !busy.value);
-onBeforeRouteUpdate(() => !busy.value);
+onBeforeRouteLeave(() => !state.mutationPending);
+onBeforeRouteUpdate(() => !state.mutationPending);
 onMounted(async () => {
   document.addEventListener("keydown", trapProgressFocus);
   await nextTick();
@@ -467,7 +518,7 @@ onMounted(async () => {
   form.value?.$el?.querySelector("input,textarea,button")?.focus();
 });
 onUnmounted(() => {
-  state.mutationPending = false;
+  active = false;
   document.removeEventListener("keydown", trapProgressFocus);
   // Wait until the inline page/portal has left and its parent controls are
   // visible again before restoring the original trigger.
@@ -527,7 +578,9 @@ onUnmounted(() => {
           :model="values"
           layout="vertical"
           @finish="submit"
-          :disabled="busy"
+          :disabled="
+            busy || state.expired || otherPending || returnConfirmation
+          "
           :required-mark="false"
         >
           <div class="mutation-scroll">
@@ -583,6 +636,28 @@ onUnmounted(() => {
                     disabled
                 /></AForm.Item>
               </div>
+              <details
+                v-if="
+                  pageFormKind === 'acceptance' &&
+                  sectionIndex === 0 &&
+                  values.previousAcceptanceCriteria?.length
+                "
+                class="prior-acceptance-notes"
+              >
+                <summary>原修订核对记录（仅供参考，不会提交）</summary>
+                <p>
+                  范围发生变化后，当前条目需要重新核对；原填写说明仍保留在这里。
+                </p>
+                <p
+                  v-for="(row, index) in values.previousAcceptanceCriteria"
+                  :key="index"
+                >
+                  R{{ row.revision }} · {{ row.text ?? row.id }} ·
+                  {{ row.passed ? "原已核对" : "原未核对" }}：{{
+                    row.note || "未填写说明"
+                  }}
+                </p>
+              </details>
               <div class="form-grid mutation-fields">
                 <template v-for="f in section.fields" :key="f.key">
                   <AForm.Item
@@ -873,7 +948,14 @@ onUnmounted(() => {
               class="mutation-submit"
               type="primary"
               html-type="submit"
-              :disabled="busy || !!conflict"
+              :disabled="
+                busy ||
+                state.expired ||
+                otherPending ||
+                returnConfirmation ||
+                !!conflict ||
+                acceptancePassBlocked
+              "
               :loading="busy"
               >{{
                 busy ? "正在提交…" : (spec.submit ?? `确认${spec.title}`)
@@ -931,11 +1013,28 @@ onUnmounted(() => {
         <aside
           v-else-if="evidencePage"
           class="creation-guide evidence-summary"
+          :class="{
+            'acceptance-server-summary': pageFormKind === 'acceptance',
+          }"
           :aria-label="
             pageFormKind === 'test' ? '测试结论摘要' : '验收核对摘要'
           "
         >
-          <h2>{{ pageFormKind === "test" ? "结论摘要" : "验收核对摘要" }}</h2>
+          <AcceptanceReadiness
+            v-if="
+              pageFormKind === 'acceptance' &&
+              evidenceContext &&
+              version !== undefined
+            "
+            :requirement-id="evidenceContext.target.id"
+            :requirement-version="version"
+            :revision="Number(evidenceContext.revision)"
+            :target-version="String(values.targetVersion ?? '')"
+            embedded
+            @status="serverGateOk = $event"
+            @stale="staleAcceptance"
+          />
+          <h2>{{ pageFormKind === "test" ? "结论摘要" : "本次填写摘要" }}</h2>
           <p class="evidence-summary-caption">以下仅汇总本次填写内容。</p>
           <template v-if="pageFormKind === 'test'">
             <div class="evidence-summary-row">
@@ -1016,9 +1115,100 @@ onUnmounted(() => {
       </div>
     </component>
   </Teleport>
+  <AModal
+    :open="returnConfirmation"
+    title="退回产品验收"
+    :width="540"
+    :z-index="1200"
+    class="acceptance-return-modal"
+    :mask-closable="false"
+    :keyboard="!busy"
+    :closable="!busy"
+    @cancel="dismissReturn"
+  >
+    <p class="return-object">
+      {{ evidenceContext?.title }} · 修订 R{{ evidenceContext?.revision }} ·
+      对象版本 {{ version }}
+    </p>
+    <AAlert
+      type="warning"
+      show-icon
+      message="确认后将记录本次退回及原因，原测试与验收历史继续保留。"
+    />
+    <h3>退回原因与说明</h3>
+    <p class="return-reason">{{ values.reason }}</p>
+    <h3>后续关联工作</h3>
+    <p>
+      {{
+        [...(values.reworkTaskIds ?? []), ...(values.bugIds ?? [])]
+          .map(
+            (id) =>
+              spec.fields
+                .flatMap((f) => f.options ?? [])
+                .find((o) => o.value === id)?.label ?? id,
+          )
+          .join("、") || "尚未选择关联返工工作，提交时由服务器校验。"
+      }}
+    </p>
+    <p class="return-note">
+      以上内容来自本次填写。取消可继续修改；确认沿用当前修订、版本与原验收命令提交。
+    </p>
+    <AAlert v-if="error" type="error" role="alert" :message="error" show-icon />
+    <template #footer>
+      <AButton :disabled="busy" @click="dismissReturn">取消</AButton>
+      <AButton
+        type="primary"
+        :loading="busy"
+        :disabled="busy || state.expired || otherPending"
+        @click="confirmReturn"
+        >确认退回</AButton
+      >
+    </template>
+  </AModal>
 </template>
 
 <style>
+.prior-acceptance-notes {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid #e4e9f1;
+  border-radius: 6px;
+  background: #f8faff;
+}
+.prior-acceptance-notes summary {
+  color: #245bdb;
+  cursor: pointer;
+  font-size: 12px;
+}
+.prior-acceptance-notes p {
+  color: #65738b;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.acceptance-return-modal .return-object {
+  color: #65738b;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.acceptance-return-modal h3 {
+  margin: 22px 0 9px;
+  font-size: 13px;
+  color: #334562;
+}
+.acceptance-return-modal .return-reason {
+  padding: 14px 16px;
+  background: #f8faff;
+  border: 1px solid #e4e9f1;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acceptance-return-modal .return-note {
+  color: #738097;
+  font-size: 12px;
+  line-height: 1.8;
+}
 .workbench-action-modal.ant-modal {
   top: 64px;
   padding-bottom: 24px;
@@ -1463,8 +1653,15 @@ onUnmounted(() => {
   .page-action-form .creation-guide {
     display: none;
   }
+  .page-action-form .creation-guide.acceptance-server-summary {
+    display: block;
+  }
 }
 @media (max-width: 600px) {
+  .acceptance-return-modal.ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: auto;
+  }
   .workbench-action-modal.ant-modal {
     top: 16px;
     max-width: calc(100vw - 24px);

@@ -222,6 +222,10 @@ test("task_10 immutable report sources ignore an older version response", async 
   const second = await (await generated).json();
   await expect(page.getByRole("status")).toContainText("已生成新版本");
   await page.getByRole("button", { name: /查看来源/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "返回草稿", exact: true })
+    .click();
   await expect(
     page.getByText("只在较新来源版本出现的贡献", { exact: true }),
   ).toBeVisible();

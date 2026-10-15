@@ -17,6 +17,8 @@ import { actionForm, actionNames, createForm, type FormSpec } from "../forms";
 import ActionForm from "./ActionForm.vue";
 import HistoryList from "./HistoryList.vue";
 import AttachmentPanel from "./AttachmentPanel.vue";
+import AcceptanceReadiness from "./AcceptanceReadiness.vue";
+import AInput from "ant-design-vue/es/input";
 import type {
   SeqPage,
   WorkUpdate,
@@ -40,6 +42,7 @@ const o = ref<any>(),
   refresh = ref(0),
   notice = ref(""),
   tab = ref("details");
+const acceptanceTarget = ref("");
 const detailReady = computed(() => !!o.value && !busy.value && !error.value);
 const plural = computed(() =>
   props.kind === "requirement"
@@ -67,6 +70,7 @@ async function load() {
     ]);
     read.commit(() => {
       o.value = object;
+      acceptanceTarget.value = object.acceptanceTargetVersion ?? "";
       linked.value = related.all;
       tests.value = related.records;
       acceptances.value = related.acceptances;
@@ -335,7 +339,16 @@ function split() {
           <span class="eyebrow"
             >PROJECT / {{ o.projectId }} · {{ zh(kind) }}</span
           >
-          <h1>{{ o.title }}</h1>
+          <h1>
+            {{
+              kind === "requirement" && tab === "acceptance"
+                ? "产品验收"
+                : o.title
+            }}
+          </h1>
+          <p v-if="kind === 'requirement' && tab === 'acceptance'">
+            {{ o.title }}
+          </p>
           <p>
             {{ o.id }} · 版本 {{ o.version
             }}<span v-if="o.revision"> · 修订 R{{ o.revision }}</span>
@@ -628,6 +641,24 @@ function split() {
               v-if="tab === 'acceptance'"
               class="doc-section detail-evidence"
             >
+              <h2>业务验收条目</h2>
+              <div
+                v-for="(criterion, index) in o.criteria"
+                :key="criterion.id"
+                class="acceptance-criterion"
+              >
+                <span class="criterion-order">{{ Number(index) + 1 }}</span>
+                <div>
+                  <strong>{{ criterion.text }}</strong>
+                  <p>
+                    当前修订 R{{ o.revision }} ·
+                    {{ criterion.required ? "必需条目" : "可选条目" }}
+                  </p>
+                </div>
+              </div>
+              <p class="detail-context">
+                所有有效成员可查看条件；提交与产品验收仍要求本项目显式角色及指定独立验收人。对象变化后请刷新详情重新核对。
+              </p>
               <h2>产品验收记录</h2>
               <p class="detail-context">
                 由指定产品验收人核对业务结果，独立于开发、修复与测试记录。验收通过后仍需单独记录上线。
@@ -757,6 +788,23 @@ function split() {
           />
         </div>
         <aside class="detail-rail" aria-label="工作属性与协作">
+          <template v-if="kind === 'requirement' && tab === 'acceptance'">
+            <section class="panel acceptance-readiness-entry">
+              <label for="acceptance-readiness-target">验收目标版本</label>
+              <AInput
+                id="acceptance-readiness-target"
+                v-model:value="acceptanceTarget"
+                :maxlength="200"
+                placeholder="填写本次核对的实际版本"
+              />
+            </section>
+            <AcceptanceReadiness
+              :requirement-id="o.id"
+              :requirement-version="o.version"
+              :revision="o.revision"
+              :target-version="acceptanceTarget"
+            />
+          </template>
           <section class="panel detail-properties">
             <h2>{{ zh(kind) }}属性</h2>
             <dl>
@@ -888,6 +936,40 @@ function split() {
 <style scoped>
 .object-detail {
   min-width: 0;
+}
+.acceptance-readiness-entry {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+.acceptance-readiness-entry label {
+  font-size: 12px;
+  color: #65738b;
+}
+.acceptance-criterion {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 22px 0;
+  border-bottom: 1px solid #e4e9f1;
+}
+.acceptance-criterion .criterion-order {
+  color: #738097;
+  background: #f0f4fa;
+  border-radius: 4px;
+  text-align: center;
+  height: 28px;
+  line-height: 28px;
+}
+.acceptance-criterion strong {
+  font-size: 13px;
+  line-height: 1.8;
+  color: #263752;
+}
+.acceptance-criterion p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #738097;
 }
 .breadcrumb {
   display: flex;

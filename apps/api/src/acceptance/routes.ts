@@ -11,6 +11,8 @@ import {
 } from "../auth/guards.js";
 import { DomainError } from "../db/mutate.js";
 import { getRequirement } from "../requirements/service.js";
+import { createPolicy } from "../access/policy.js";
+import { acceptanceReadiness } from "./readiness.js";
 import {
   submitAcceptance,
   acceptRequirement,
@@ -23,6 +25,26 @@ function scope(b: any) {
   text(b.targetVersion, 1, 200);
 }
 export function acceptanceRoutes(app: FastifyInstance, db: Database) {
+  app.get("/api/requirements/:id/acceptance-readiness", (request) => {
+    const member = requireRequest(db, request);
+    const id = (request.params as any).id;
+    const query = fields(request.query, [], ["targetVersion"]);
+    if (query.targetVersion !== undefined) text(query.targetVersion, 0, 200);
+    // One SQLite snapshot binds the requirement version, evidence and policies.
+    return db
+      .transaction(() => {
+        createPolicy(db).authorize(member.id, "read", {
+          kind: "requirement",
+          id,
+        });
+        return acceptanceReadiness(
+          db,
+          id,
+          query.targetVersion as string | undefined,
+        );
+      })
+      .deferred();
+  });
   app.post("/api/requirements/:id/submit-acceptance", (request) => {
     const ctx = mutationContext(db, request),
       b: any = fields(request.body, [

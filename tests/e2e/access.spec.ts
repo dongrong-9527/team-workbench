@@ -67,9 +67,12 @@ test("task_10 session expiry retains own draft, identity switch isolates it, mob
   await expect(input).toHaveValue("中文输入尚未保存");
   await context.clearCookies();
   await page.getByRole("button", { name: "保存更新", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "登录已过期",
-  );
+  const expired = page.getByRole("dialog", {
+    name: "登录会话已失效",
+    exact: true,
+  });
+  await expect(expired.getByRole("alert")).toContainText("登录已过期");
+  await expired.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "返回并保留草稿" }).click();
   await page.getByRole("link", { name: "重新登录", exact: true }).click();
   await page.getByLabel("登录账号").fill("dev2");
@@ -341,7 +344,9 @@ test("task_10 double click and lost successful response replay one command; arch
   await page.getByLabel("项目名称", { exact: true }).fill("合成归档项目");
   await submit(page, "确认新建项目");
   await expect(page).toHaveURL(/\/projects\/[^/]+$/);
-  await expect(page.getByRole("heading", { name: "合成归档项目", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "合成归档项目", exact: true }),
+  ).toBeVisible();
   await action(page, "归档项目");
   await expect(page.getByText(/归档后所有成员只能阅读/)).toBeVisible();
   await submit(page, "确认归档项目");

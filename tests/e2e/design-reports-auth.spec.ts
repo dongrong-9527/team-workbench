@@ -15,6 +15,10 @@ test("report editor and immutable source snapshot can be checked together", asyn
     .getByLabel("日报文本", { exact: true })
     .fill("来源核对时保留的人工草稿");
   await page.getByRole("button", { name: /查看来源/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "返回草稿", exact: true })
+    .click();
   await expect(page.getByLabel("日报文本", { exact: true })).toHaveValue(
     "来源核对时保留的人工草稿",
   );

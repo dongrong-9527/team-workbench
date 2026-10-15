@@ -724,6 +724,7 @@ export function actionForm(
   }
   if (action === "acceptance") {
     path = base + "/acceptance";
+    initial.acceptanceRevision = o.revision;
     initial.criteria = o.criteria.map((c: any) => ({
       ...c,
       passed: false,
@@ -819,7 +820,50 @@ export function actionForm(
       ? (current, values) => {
           if (typeof current.id === "string") values.correctsId = current.id;
         }
-      : undefined,
+      : action === "acceptance"
+        ? (current, values) => {
+            if (
+              !Array.isArray(current.criteria) ||
+              typeof current.revision !== "number"
+            )
+              return;
+            const prior = Array.isArray(values.criteria) ? values.criteria : [];
+            const definition = (row: any) => ({
+              id: row.id,
+              text: row.text,
+              required: row.required,
+              ...(row.exclusionReason
+                ? { exclusionReason: row.exclusionReason }
+                : {}),
+            });
+            const changedScope =
+              values.acceptanceRevision !== current.revision ||
+              JSON.stringify(prior.map(definition)) !==
+                JSON.stringify(current.criteria.map(definition));
+            if (changedScope) {
+              values.previousAcceptanceCriteria = [
+                ...(values.previousAcceptanceCriteria ?? []),
+                ...prior.map((row: any) => ({
+                  ...row,
+                  revision: values.acceptanceRevision ?? "未知",
+                })),
+              ];
+            }
+            values.criteria = current.criteria.map((criterion: any) => {
+              const previous = prior.find(
+                (row: any) => row.id === criterion.id,
+              );
+              return {
+                ...criterion,
+                passed: !changedScope && previous?.passed === true,
+                note: previous?.note ?? "",
+              };
+            });
+            values.acceptanceRevision = current.revision;
+            o = { ...o, ...current };
+            initial.title = String(current.title ?? initial.title ?? "");
+          }
+        : undefined,
     submit: action === "update" ? "保存更新" : `确认${title}`,
     description: `${zh(kind)} · ${o.title} · 当前版本 ${o.version} · 负责人 ${nameOf(o.ownerId ?? o.acceptorId)}`,
     impact: ["cancel", "reopen", "transfer", "assign", "revise"].includes(

@@ -26,6 +26,18 @@ export const state = reactive({
   ready: false,
   mutationPending: false,
 });
+// Each in-flight command releases only its own token, even if its view leaves.
+// A late response must never clear another component's pending protection.
+const mutationOwners = new Set<symbol>();
+export function beginMutation() {
+  const owner = Symbol("workbench-mutation");
+  mutationOwners.add(owner);
+  state.mutationPending = true;
+  return () => {
+    mutationOwners.delete(owner);
+    state.mutationPending = mutationOwners.size > 0;
+  };
+}
 export async function refreshSession() {
   const s = await request<{ member: Member; csrfToken: string }>(
     "/api/auth/session",

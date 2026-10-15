@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import UploadOutlined from "@ant-design/icons-vue/UploadOutlined";
 import AButton from "ant-design-vue/es/button";
+import AModal from "ant-design-vue/es/modal";
+import AAlert from "ant-design-vue/es/alert";
 import { onMounted, onBeforeUnmount, ref } from "vue";
 import { request } from "../api/client";
+import { state, beginMutation } from "../state";
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 const props = defineProps<{
   kind: string;
   id: string;
@@ -25,6 +29,9 @@ const images = ref<ImageInfo[]>([]),
   file = ref<File>(),
   input = ref<HTMLInputElement>(),
   preview = ref("");
+const uploadFailure = ref(false),
+  uploadFailureMessage = ref("");
+const actor = state.member?.id;
 let active = true,
   key = "",
   version = 0;
@@ -77,15 +84,33 @@ async function load(more = false) {
   }
 }
 function select(event: Event) {
+  if (uploading.value || state.expired) return;
   file.value = (event.target as HTMLInputElement).files?.[0];
   key = crypto.randomUUID();
   version = props.version;
   error.value = "";
   notice.value = "";
+  uploadFailure.value = false;
+}
+function dismissFailure() {
+  if (!uploading.value) uploadFailure.value = false;
+}
+function removeSelectedFile() {
+  if (uploading.value) return;
+  file.value = undefined;
+  if (input.value) input.value.value = "";
+  key = "";
+  error.value = "";
+  uploadFailureMessage.value = "";
+  uploadFailure.value = false;
+  void load();
 }
 async function upload() {
   if (!file.value || uploading.value) return;
+  if (state.expired || state.member?.id !== actor || state.mutationPending)
+    return;
   uploading.value = true;
+  const release = beginMutation();
   error.value = "";
   notice.value = "";
   const body = new FormData();
@@ -95,19 +120,28 @@ async function upload() {
       path + `?expectedVersion=${version}&size=${file.value.size}`,
       { method: "POST", body, headers: { "Idempotency-Key": key } },
     );
-    if (active) {
+    if (active && state.member?.id === actor && !state.expired) {
       file.value = undefined;
       if (input.value) input.value.value = "";
       notice.value = "图片已保存";
+      uploadFailure.value = false;
       emit("uploaded");
       await load();
     }
   } catch (e) {
-    if (active) error.value = (e as Error).message;
+    if (active && state.member?.id === actor) {
+      error.value = (e as Error).message;
+      uploadFailureMessage.value = error.value;
+      // Session failures belong to the single App-owned session dialog.
+      uploadFailure.value = !state.expired;
+    }
   } finally {
+    release();
     if (active) uploading.value = false;
   }
 }
+onBeforeRouteLeave(() => !uploading.value);
+onBeforeRouteUpdate(() => !uploading.value);
 onMounted(() => load());
 </script>
 <template>
@@ -128,7 +162,9 @@ onMounted(() => load());
           ><small>支持 PNG、JPEG、WebP · 图片与工作文字分别保存</small>
         </div>
         <div class="attachment-upload-actions">
-          <AButton :disabled="uploading" @click="input?.click()"
+          <AButton
+            :disabled="uploading || state.expired"
+            @click="input?.click()"
             ><UploadOutlined aria-hidden="true" />选择图片</AButton
           >
           <label hidden
@@ -137,12 +173,18 @@ onMounted(() => load());
               ref="input"
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              :disabled="uploading"
+              :disabled="uploading || state.expired"
               @change="select"
           /></label>
           <AButton
             type="primary"
-            :disabled="!file || uploading || loading"
+            :disabled="
+              !file ||
+              uploading ||
+              loading ||
+              state.expired ||
+              state.mutationPending
+            "
             :aria-busy="uploading"
             @click="upload"
           >
@@ -199,9 +241,59 @@ onMounted(() => load());
       </AButton>
     </div>
   </section>
+  <AModal
+    :open="uploadFailure"
+    title="附件上传失败"
+    :width="540"
+    :z-index="1200"
+    class="attachment-failure-modal"
+    :mask-closable="false"
+    :closable="!uploading"
+    :keyboard="!uploading"
+    @cancel="dismissFailure"
+  >
+    <AAlert
+      type="error"
+      show-icon
+      :message="`${file?.name ?? '所选图片'} 上传结果未确认`"
+      :description="uploadFailureMessage"
+    />
+    <p>
+      所选文件与原上传命令已保留。重试会沿用同一文件、对象版本与幂等键，避免重复保存。
+    </p>
+    <p>
+      工作文字与图片分别保存。可以关闭提示继续处理文字；离开页面后，本地文件需重新选择。
+    </p>
+    <p>
+      移除仅清除本地选择，不删除服务器记录；服务器是否已保存以重新读取的附件列表为准。
+    </p>
+    <template #footer>
+      <AButton :disabled="uploading" @click="removeSelectedFile"
+        >移除此附件</AButton
+      >
+      <AButton
+        type="primary"
+        :disabled="uploading || state.expired || state.mutationPending"
+        :aria-busy="uploading"
+        @click="upload"
+        >重试上传</AButton
+      >
+    </template>
+  </AModal>
 </template>
 
 <style scoped>
+:global(.attachment-failure-modal p) {
+  color: #65738b;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  :global(.attachment-failure-modal.ant-modal) {
+    max-width: calc(100vw - 24px);
+    margin: auto;
+  }
+}
 .attachment-panel {
   margin: 0;
   border: 1px solid #e4e9f1;

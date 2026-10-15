@@ -10,7 +10,7 @@ import {
   EditOutlined,
   BlockOutlined,
 } from "@ant-design/icons-vue";
-import { computed, onMounted, ref, watch, nextTick } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { state, refreshSession } from "./state";
 import { command } from "./api/client";
@@ -20,6 +20,8 @@ import AInput from "ant-design-vue/es/input";
 import ASelect from "ant-design-vue/es/select";
 import ADrawer from "ant-design-vue/es/drawer";
 import AAvatar from "ant-design-vue/es/avatar";
+import AModal from "ant-design-vue/es/modal";
+import AAlert from "ant-design-vue/es/alert";
 import { uiTheme, uiLocale } from "./ui";
 const navigation = [
   { path: "/my-work", label: "我的工作", icon: AppstoreOutlined },
@@ -61,6 +63,34 @@ const route = useRoute(),
   loading = ref(true),
   search = ref(""),
   error = ref("");
+const sessionDialogOpen = ref(false),
+  sessionContext = ref("");
+function sessionExpired() {
+  if (!state.member || state.expired) return;
+  sessionContext.value =
+    document.querySelector(".page-action-form h1")?.textContent?.trim() ||
+    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+      .find((element) => element.getClientRects().length)
+      ?.getAttribute("aria-label") ||
+    "当前普通工作草稿";
+  state.expired = true;
+  navOpen.value = false;
+  sessionDialogOpen.value = true;
+}
+function dismissSessionDialog() {
+  if (!state.mutationPending) sessionDialogOpen.value = false;
+}
+async function reLogin() {
+  if (state.mutationPending) return;
+  sessionDialogOpen.value = false;
+  await router.push({ path: "/login", query: { return: route.fullPath } });
+}
+watch(
+  () => state.expired,
+  (expired) => {
+    if (!expired) sessionDialogOpen.value = false;
+  },
+);
 const currentLabel = computed(() => {
   if (route.path.startsWith("/projects/"))
     return state.projects.find((p) => p.id === route.params.id)?.name ?? "项目";
@@ -79,12 +109,15 @@ watch(
   () => route.fullPath,
   () => {
     navOpen.value = false;
+    if (["/login", "/activate", "/reset"].includes(route.path))
+      sessionDialogOpen.value = false;
   },
 );
 const demo = import.meta.env.VITE_DEMO === "true";
-window.addEventListener("workbench:expired", () => {
-  if (state.member) state.expired = true;
-});
+window.addEventListener("workbench:expired", sessionExpired);
+onUnmounted(() =>
+  window.removeEventListener("workbench:expired", sessionExpired),
+);
 onMounted(async () => {
   try {
     await refreshSession();
@@ -313,6 +346,70 @@ async function logout() {
         </div>
       </div>
       <main v-else class="auth-layout"><RouterView /></main>
+      <AModal
+        v-if="
+          state.member &&
+          !['/login', '/activate', '/reset'].includes(route.path)
+        "
+        :open="sessionDialogOpen"
+        title="登录会话已失效"
+        :width="540"
+        :z-index="1400"
+        class="session-expired-modal"
+        :mask-closable="false"
+        :keyboard="!state.mutationPending"
+        :closable="!state.mutationPending"
+        @cancel="dismissSessionDialog"
+      >
+        <AAlert
+          type="warning"
+          show-icon
+          message="登录已过期，请重新登录后继续操作。"
+        />
+        <p>
+          本次请求未通过身份验证。普通工作草稿已保留，重新登录同一账号后可继续填写。
+        </p>
+        <p class="session-draft-context">当前未提交：{{ sessionContext }}。</p>
+        <p class="session-draft-note">
+          会话恢复前不能提交工作。图片与文字分别保存；本地图片在离开页面后需重新选择。
+        </p>
+        <template #footer>
+          <AButton
+            :disabled="state.mutationPending"
+            @click="dismissSessionDialog"
+            >取消</AButton
+          >
+          <AButton
+            type="primary"
+            :disabled="state.mutationPending"
+            @click="reLogin"
+            >重新登录</AButton
+          >
+        </template>
+      </AModal>
     </template>
   </AConfigProvider>
 </template>
+
+<style>
+.session-expired-modal p {
+  color: #65738b;
+  line-height: 1.8;
+}
+.session-expired-modal .session-draft-context {
+  padding: 14px 16px;
+  background: #f5f7fb;
+  border: 1px solid #e4e9f1;
+  border-radius: 6px;
+  color: #334562;
+}
+.session-expired-modal .session-draft-note {
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .session-expired-modal.ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: auto;
+  }
+}
+</style>
