@@ -49,7 +49,16 @@ test("task_10 report source versions editing regeneration clipboard denial and i
   await expect(
     page.getByRole("button", { name: "全选文本，手动复制" }),
   ).toBeVisible();
-  const selection = await page.getByLabel("日报文本").evaluate((element) => {
+  const copyDialog = page.getByRole("dialog", {
+    name: "复制失败",
+    exact: true,
+  });
+  const manualText = copyDialog.getByLabel("可手动复制的日报文本", {
+    exact: true,
+  });
+  await expect(manualText).toHaveValue(old + "\n人工核对说明：仅为云端演示");
+  await expect(manualText).toBeFocused();
+  const selection = await manualText.evaluate((element) => {
     const text = element as HTMLTextAreaElement;
     return {
       start: text.selectionStart,

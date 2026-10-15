@@ -35,11 +35,27 @@ test("attachment retry keeps its key, failed upload preserves valid text save, a
     exact: true,
   });
   await expect(uploadFailure).toBeVisible();
+  // Ant takes focus after its opening transition. Escape must be sent to
+  // that focused dialog, rather than to the previous upload trigger.
+  await expect
+    .poll(() =>
+      uploadFailure.evaluate((dialog) =>
+        dialog.contains(document.activeElement),
+      ),
+    )
+    .toBe(true);
   await page.keyboard.press("Escape");
   await expect(uploadFailure).toHaveCount(0);
   await panel.getByRole("button", { name: "重试上传图片" }).click();
   await expect.poll(() => keys.length).toBe(2);
   await expect(uploadFailure).toBeVisible();
+  await expect
+    .poll(() =>
+      uploadFailure.evaluate((dialog) =>
+        dialog.contains(document.activeElement),
+      ),
+    )
+    .toBe(true);
   await page.keyboard.press("Escape");
   await expect(uploadFailure).toHaveCount(0);
   expect(keys[0]).toBe(keys[1]);
