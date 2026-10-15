@@ -1,0 +1,49 @@
+{
+  "name": "team-workbench",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": "24.21.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && node scripts/typecheck-web.cjs --noEmit -p apps/web/tsconfig.json",
+    "build": "tsc -p apps/api/tsconfig.json && node scripts/copy-migrations.mjs && vite build apps/web --config apps/web/vite.config.ts",
+    "e2e": "playwright test",
+    "start": "node apps/api/dist/apps/api/src/server.js",
+    "backup": "node apps/api/dist/scripts/backup.js",
+    "restore:verify": "node apps/api/dist/scripts/restore-verify.js",
+    "package:release": "node apps/api/dist/scripts/package-release.js",
+    "verify:runtime": "node apps/api/dist/scripts/verify-runtime.js",
+    "verify:release": "node apps/api/dist/scripts/verify-release.js",
+    "verify:release:checks": "node apps/api/dist/scripts/verify-release.js --record-checks",
+    "migrate:release": "node apps/api/dist/scripts/migrate-release.js",
+    "load:release": "node apps/api/dist/scripts/release-load.js"
+  },
+  "dependencies": {
+    "@fastify/multipart": "10.1.0",
+    "better-sqlite3": "13.0.3",
+    "fastify": "5.12.5",
+    "sharp": "0.35.5",
+    "vue": "3.5.43",
+    "vue-router": "5.4.0"
+  },
+  "devDependencies": {
+    "@ant-design/icons-vue": "7.0.1",
+    "@playwright/test": "1.64.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "24.19.2",
+    "@vitejs/plugin-vue": "6.0.10",
+    "ant-design-vue": "4.2.6",
+    "dayjs": "1.11.23",
+    "typescript": "7.0.2",
+    "typescript-sfc": "npm:typescript@6.0.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3",
+    "vue-tsc": "3.3.13"
+  }
+}

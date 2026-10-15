@@ -1,0 +1,33 @@
+[Unit]
+Description=Team Workbench
+After=network.target
+
+[Service]
+Type=simple
+User=workbench
+Group=workbench
+WorkingDirectory=/srv/workbench/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/workbench/runtime.env
+ExecStartPre=/srv/workbench/current/runtime/node /srv/workbench/current/apps/api/dist/scripts/verify-runtime.js /srv/workbench/current
+ExecStart=/srv/workbench/current/runtime/node /srv/workbench/current/apps/api/dist/apps/api/src/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/workbench
+StateDirectory=workbench
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=128
+LimitNOFILE=4096
+StandardOutput=journal
+StandardError=journal
+# V8 JIT and native decoders require executable mappings; do not add MemoryDenyWriteExecute.
+
+[Install]
+WantedBy=multi-user.target

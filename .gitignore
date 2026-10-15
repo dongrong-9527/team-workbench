@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.db
+*.db-*
+.env
+playwright-report/
+test-results/
+
+# Private runtime image store (default path)
+/data/attachments/
+# Optional local backup staging; prefer an external private directory.
+/backups/
