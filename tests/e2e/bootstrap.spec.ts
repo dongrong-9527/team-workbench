@@ -79,6 +79,7 @@ test('bootstrap requirement refinement and task assignment are reachable from pr
   await page.getByLabel('来源说明',{exact:true}).fill('合成首次协作');
   await page.getByLabel('需求细化说明',{exact:true}).fill('交付可验证功能');
   await selectOption(page,'产品验收人',{value:'',label:'初始管理员'});
+  await page.getByRole('button',{name:'添加条目',exact:true}).click();
   await page.getByLabel('条目说明',{exact:true}).fill('功能可验证');
   await submit(page,'确认新建需求');
   await expect(page).toHaveURL(/\/requirement\//);

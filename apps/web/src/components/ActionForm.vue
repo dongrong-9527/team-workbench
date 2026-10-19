@@ -703,6 +703,7 @@ onUnmounted(() => {
                       :options="f.optionsFor ? f.optionsFor(values) : f.options"
                       :placeholder="'请选择' + f.label"
                       :allow-clear="!f.required"
+                      :disabled="f.disabled"
                       @update:value="values[f.key] = $event ?? ''"
                     />
                     <ACheckbox.Group

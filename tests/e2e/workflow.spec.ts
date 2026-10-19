@@ -61,6 +61,7 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await page
     .getByLabel("需求细化说明", { exact: true })
     .fill("提交表单必须正确校验");
+  await page.getByRole("button", { name: "添加条目", exact: true }).click();
   await selectOption(page, "产品验收人", { value: "product", label: "林产品" });
   await page
     .getByLabel("条目说明", { exact: true })

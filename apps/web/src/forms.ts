@@ -4,6 +4,7 @@ export interface Field {
   label: string;
   type?: string;
   required?: boolean;
+  disabled?: boolean;
   wide?: boolean;
   max?: number;
   help?: string;
@@ -91,7 +92,6 @@ function scopeMembers(
   projectId: string,
   kind: string,
   fixedScope?: string,
-  taskKind?: string,
 ) {
   for (const f of fields)
     if (
@@ -111,7 +111,7 @@ function scopeMembers(
                   : f.key === "followUpOwnerId"
                     ? true
                     : f.key === "reviewerId"
-                      ? ["frontend", "backend"].includes(taskKind ?? v.kind)
+                      ? ["frontend", "backend"].includes(functional)
                         ? r.role === "test"
                         : r.role === "product" ||
                           (r.role === functional && !!r.lead)
@@ -168,7 +168,7 @@ export function createForm(
     sourceUrl: "",
     description: "",
     acceptorId: "",
-    criteria: [{ id: "c1", text: "", required: true }],
+    criteria: [],
     expected: "",
     actual: "",
     reproduction: "",
@@ -182,11 +182,13 @@ export function createForm(
     kind === "requirement"
       ? [
           ...common,
-          field("sourceDescription", "来源说明", "textarea"),
+          field("sourceDescription", "来源说明", "textarea", false, {
+            help: "来源链接或来源说明至少填写一项；细化内容可稍后补充。",
+          }),
           field("sourceUrl", "腾讯文档 / 来源链接（仅 HTTPS）", "url", false),
-          field("description", "需求细化说明", "textarea"),
-          memberField("acceptorId", "产品验收人", true),
-          field("criteria", "验收条目", "definitions"),
+          field("description", "需求细化说明", "textarea", false),
+          memberField("acceptorId", "产品验收人"),
+          field("criteria", "验收条目", "definitions", false),
           select("role", "职责范围", ["frontend", "backend", "test"]),
         ]
       : kind === "task"
@@ -199,7 +201,9 @@ export function createForm(
               "other",
             ]),
             select("role", "其他任务职责", ["frontend", "backend", "test"]),
-            field("definitionOfDone", "完成标准", "textarea"),
+            field("definitionOfDone", "完成标准", "textarea", false, {
+              help: "可先保存待处理任务，开始前补齐完成标准。",
+            }),
             memberField("ownerId", "主负责人"),
             memberField("reviewerId", "检查人"),
             field("requirementId", "关联需求编号", "text", false, {
@@ -213,10 +217,12 @@ export function createForm(
         : [
             ...common,
             select("role", "修复职责", ["frontend", "backend", "test"]),
-            field("expected", "预期行为", "textarea"),
-            field("actual", "实际行为", "textarea"),
-            field("reproduction", "复现步骤", "textarea"),
-            field("environment", "复现环境"),
+            field("expected", "预期行为", "textarea", false),
+            field("actual", "实际行为", "textarea", false),
+            field("reproduction", "复现步骤", "textarea", false),
+            field("environment", "复现环境", "text", false, {
+              help: "口述或微信问题可先保存待确认，确认缺陷前补齐复现信息。",
+            }),
             select("severity", "严重程度", [
               "blocker",
               "critical",
@@ -246,10 +252,10 @@ export function createForm(
             ...pick(v, [
               "title",
               "priority",
-              "description",
               "role",
               ...(isProduct ? ["acceptorId"] : []),
             ]),
+            description: v.description ?? "",
             source: source(v),
             criteria: criteria(v.criteria),
           }
@@ -260,11 +266,11 @@ export function createForm(
                 "title",
                 "priority",
                 "kind",
-                "definitionOfDone",
                 "ownerId",
                 "reviewerId",
                 "requirementId",
               ]),
+              definitionOfDone: v.definitionOfDone ?? "",
               ...(v.kind === "other" ? { role: v.role } : {}),
               ...(projectOf(projectId)?.myRoles.some(
                 (r) => r.role === "product",
@@ -283,18 +289,20 @@ export function createForm(
                 "title",
                 "priority",
                 "role",
-                "expected",
-                "actual",
-                "reproduction",
-                "environment",
                 "severity",
                 "requirementId",
                 "taskId",
               ]),
+              expected: v.expected ?? "",
+              actual: v.actual ?? "",
+              reproduction: v.reproduction ?? "",
+              environment: v.environment ?? "",
             },
   };
 }
 function source(v: any) {
+  if (!v.sourceUrl?.trim() && !v.sourceDescription?.trim())
+    throw new Error("请填写来源链接或来源说明。原文可在后续人工核对。");
   if (v.sourceUrl && !v.sourceUrl.startsWith("https://"))
     throw new Error("来源链接必须使用 HTTPS。");
   return {
@@ -794,10 +802,17 @@ export function actionForm(
     if (correction) {
       initial = { ...initial, ...correction, correctsId: correction.id };
       title = "更正我的工作更新";
+      const type = fields.find((f) => f.key === "contributionType")!;
+      type.disabled = true;
+      type.help = "更正保留原实际贡献类型；开发或修复参与会影响独立产品验收资格。";
+    } else {
+      fields.find((f) => f.key === "contributionType")!.help =
+        "请选择实际贡献；开发或修复类型会记录执行参与，不能在普通更正中改为其他类型。";
     }
     body = (v) => ({
       target: { kind, id: o.id },
       ...pick(v, ["workDate", "contributionType", "done", "next", "obstacle"]),
+      ...(correction ? { contributionType: correction.contributionType } : {}),
       ...(correction ? { correctsId: v.correctsId, reason: v.reason } : {}),
     });
   }
@@ -808,7 +823,6 @@ export function actionForm(
     o.projectId,
     kind,
     kind === "task" && o.kind !== "other" ? o.kind : o.role,
-    o.kind,
   );
   return {
     title,

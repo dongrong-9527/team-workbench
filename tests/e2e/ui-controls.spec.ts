@@ -239,6 +239,8 @@ test("Ant auth and definition rules block short passwords and missing custom fie
   await page.goto("/projects/p1");
   await page.getByRole("button", { name: "新建需求", exact: true }).click();
   await page.getByRole("button", { name: "确认新建需求" }).click();
+  await page.getByRole("button", { name: "添加条目", exact: true }).click();
+  await page.getByRole("button", { name: "确认新建需求" }).click();
   await expect(page.getByText("请填写条目说明", { exact: true })).toBeVisible();
   await page.getByLabel("必需条目", { exact: true }).uncheck();
   await page.getByRole("button", { name: "确认新建需求" }).click();
@@ -331,6 +333,7 @@ test("nested supplementary-character bounds block requests and restored drafts u
   await page.goto("/projects/p1");
   await page.getByRole("button", { name: "新建需求", exact: true }).click();
   await page.getByLabel("标题", { exact: true }).fill("嵌套字符边界");
+  await page.getByRole("button", { name: "添加条目", exact: true }).click();
   await page.getByLabel("来源说明", { exact: true }).fill("合成评审");
   await page
     .getByLabel("需求细化说明", { exact: true })
