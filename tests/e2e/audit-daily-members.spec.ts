@@ -65,6 +65,10 @@ test("F04 completed work remains discoverable for a real daily update after a re
   const form = page.getByRole("dialog", { name: "写工作更新", exact: true });
   await form.getByLabel("今天实际做了什么", { exact: true }).fill("合成F04：完成后补记实际成果");
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(async () => {
+    const box = await form.boundingBox();
+    return box ? { right: Math.round(box.x + box.width), width: Math.round(box.width) } : null;
+  }).toEqual({ right: 390, width: 390 });
   await page.screenshot({ path: info.outputPath("F04-completed-update-mobile.png"), fullPage: true });
   await submit(page, "保存更新");
   const updates = await api(page, "GET", "/api/updates?limit=100&afterSeq=0");

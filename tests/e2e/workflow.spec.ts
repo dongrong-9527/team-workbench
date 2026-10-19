@@ -198,7 +198,14 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await submit(page, "确认确认需求修订");
   await expect(page.getByText(/需求修订 R2/)).toBeVisible();
   await page.goto(taskUrl);
-  await expect(page.getByText(/修订待处理/)).toBeVisible();
+  await expect(page.getByText(/R2 修订影响记录；当前任务待处理，已有历史记录保留/)).toBeVisible();
+  const impact = await page.evaluate(async () => {
+    const response = await fetch(`/api/tasks/${location.pathname.split('/').at(-1)}`);
+    return { status: response.status, body: await response.json() };
+  });
+  expect(impact.status).toBe(200);
+  expect(impact.body.pendingChange.revision).toBe(2);
+  expect(impact.body.revisionImpact).toMatchObject({ status: "pending", needsAttention: true });
 });
 test("task_10 product reviewer can check non-development tasks and recorded self-test is visible", async ({
   page,

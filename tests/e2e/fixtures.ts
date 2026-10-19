@@ -110,6 +110,13 @@ export const test = base.extend<{
               time: Date.now(),
             });
         });
+        context.on("requestfailed", (request) => {
+          const path = new URL(request.url()).pathname;
+          if (path.startsWith("/api/") || path.startsWith("/src/")) record({
+            kind: "request-failed", path, method: request.method(),
+            failure: request.failure()?.errorText, time: Date.now(),
+          });
+        });
       }
       await observe(context);
       await use(observe);
