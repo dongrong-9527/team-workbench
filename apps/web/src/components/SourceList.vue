@@ -17,6 +17,12 @@ const items = ref<ReportSource[]>([]),
   error = ref(""),
   busy = ref(false);
 const reads = useReadScope(() => props.id);
+function recordedTime(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "medium",
+  }).format(date) + "（上海时间）" : "填写时间需核对";
+}
 async function load(more = false) {
   const read = reads.begin(more);
   if (!read || (more && next.value === null)) return;
@@ -91,6 +97,12 @@ watch(
             >
           </p>
           <p>{{ s.update.done }}</p>
+          <dl class="source-update-details">
+            <dt>下一步计划</dt><dd data-source-field="next">{{ s.update.next || '未填写' }}</dd>
+            <dt>问题与协助</dt><dd data-source-field="obstacle">{{ s.update.obstacle || '未填写' }}</dd>
+            <dt>实际填写时间 <span v-if="s.update.lateEntry">补记</span></dt>
+            <dd><time :datetime="s.update.recordedAt" :title="s.update.recordedAt">{{ recordedTime(s.update.recordedAt) }}</time></dd>
+          </dl>
           <small
             >贡献版本 {{ s.version }} · 事件 #{{ s.seq }} · 原记录
             {{ s.update.id }}</small
@@ -129,6 +141,9 @@ watch(
   </div>
 </template>
 <style scoped>
+.source-update-details { margin: 10px 0; }
+.source-update-details dt { color: #748199; margin-top: 6px; font-size: 12px; }
+.source-update-details dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .source-list {
   min-width: 0;
 }

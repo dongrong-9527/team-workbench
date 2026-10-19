@@ -26,6 +26,10 @@ export function workbenchRoutes(app: FastifyInstance, db: Database) {
     const actor = requireRequest(db, r);
     return objectsPage(db, parseQuery(r.query), actor.id, "mine");
   });
+  app.get("/api/my-progress", (r) => {
+    const actor = requireRequest(db, r);
+    return objectsPage(db, parseQuery(r.query, ["q"]), actor.id, "progress");
+  });
   app.get("/api/search", (r) => {
     const actor = requireRequest(db, r);
     const q = parseQuery(r.query, ["q"]);

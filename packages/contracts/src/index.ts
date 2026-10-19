@@ -61,6 +61,11 @@ export interface Criterion {
   text: string;
   required: boolean;
 }
+export interface AcceptanceRound {
+  revision: number;
+  targetVersion: string;
+  submittedSeq: number;
+}
 export interface Requirement {
   acceptanceTargetVersion?: string;
   id: Id;
@@ -94,6 +99,7 @@ export type RequirementCommand = {
 };
 
 export interface Task {
+  pendingChange?: { requirementId: Id; revision: number; reason: string };
   id: Id;
   projectId: Id;
   requirementId?: Id | null;
@@ -111,6 +117,17 @@ export interface Task {
   version: number;
   dependencyIds: Id[];
   [key: string]: unknown;
+}
+export interface RevisionImpactDisplay {
+  status: "pending" | "awaiting_check" | "rechecked" | "evidence_required" | "cancelled" | "detached" | "source_cancelled" | "invalid";
+  needsAttention: boolean;
+  message: string;
+  impactRevision: number | null;
+  requirementId?: Id;
+  currentRevision?: number;
+  evidenceRevision?: number;
+  targetVersion?: string;
+  testId?: Id;
 }
 export type TaskCommand = {
   action:

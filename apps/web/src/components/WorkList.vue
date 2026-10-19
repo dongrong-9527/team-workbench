@@ -28,6 +28,13 @@ function tone(s: string) {
         ? "green"
         : undefined;
 }
+function impactLabel(o: any) {
+  const impact = o.revisionImpact;
+  if (impact.status === "rechecked") return `R${impact.impactRevision}影响已重检`;
+  if (!impact.needsAttention) return `历史R${impact.impactRevision}修订影响`;
+  return impact.status === "pending" ? `R${impact.impactRevision}修订待处理`
+    : impact.status === "awaiting_check" ? `R${impact.impactRevision}修订待检查` : "修订证据待核对";
+}
 function next(o: any) {
   if (
     o.archived ||
@@ -35,6 +42,8 @@ function next(o: any) {
   )
     return "查看详情";
   if (o.blocked) return "查看阻塞";
+  if (o.flags?.invalidOwner) return "查看分工";
+  if (o.flags?.parentNotExecutable) return "查看需求条件";
   const scope = o.objectKind === "task" && o.kind !== "other" ? o.kind : o.role;
   const canClaim =
     o.objectKind !== "requirement" &&
@@ -101,8 +110,10 @@ function destination(o: any) {
               <span>{{ zh(o.responsibility) }}</span
               ><ATag v-if="o.flags?.inactiveOwner" color="orange"
                 >负责人已停用</ATag
-              ><ATag v-if="o.flags?.pendingRevision" color="orange"
-                >修订待处理</ATag
+              ><ATag v-if="o.revisionImpact" :title="o.revisionImpact.message" :color="o.revisionImpact.needsAttention ? 'orange' : o.revisionImpact.status === 'rechecked' ? 'success' : undefined"
+                >{{ impactLabel(o) }}</ATag
+              ><ATag v-if="o.flags?.invalidOwner && !o.flags?.inactiveOwner" color="orange"
+                >负责人岗位权限已变更</ATag
               ><span v-if="o.flags?.missingUpdate">未填今日更新</span>
             </div>
           </template>
@@ -148,7 +159,8 @@ function destination(o: any) {
         <div class="row-flags">
           <ATag v-if="o.blocked" color="orange">阻塞</ATag
           ><ATag v-if="o.flags?.inactiveOwner" color="orange">负责人已停用</ATag
-          ><ATag v-if="o.flags?.pendingRevision" color="orange">修订待处理</ATag
+          ><ATag v-if="o.flags?.invalidOwner && !o.flags?.inactiveOwner" color="orange">负责人岗位权限已变更</ATag
+          ><ATag v-if="o.revisionImpact" :title="o.revisionImpact.message" :color="o.revisionImpact.needsAttention ? 'orange' : o.revisionImpact.status === 'rechecked' ? 'success' : undefined">{{ impactLabel(o) }}</ATag
           ><span v-if="o.flags?.missingUpdate">未填今日更新</span>
         </div>
         <div class="mobile-card-footer">

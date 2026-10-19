@@ -115,12 +115,16 @@ Daily report API (deterministic backend; no external AI or messaging integration
 
 以下读取均要求有效成员，默认 `limit=20`、上限 100，未知或非法查询字段返回 400；数据库错误不会转为空列表。列表当前值会随业务写入变化，游标固定首次查询的创建范围并按 SQLite 行序稳定向后遍历，不承诺跨请求的业务快照；历史/日报仍使用既有不可变截止点。
 
+需求详情在有相同当前修订/构建的不可变提交验收事件时额外返回 `acceptanceRound`，供回退后的指定产品记录退回；没有当前轮次时省略。任务详情和列表在有修订影响时额外返回只读 `revisionImpact`，按任务状态、原需求归属和现有 canonical coverage 区分重检、待检查及证据待核对。历史修订与当前需求修订分开展示；legacy 完成不推断 canonical 重检。原始 `pendingChange`、事件、状态及验收门禁保持，未新增解决动作或持久化状态。上述展示字段不注入业务原始 getter，也不成为写权限依据。
+
 - `GET /api/projects` 迁移为 `{items,nextCursor}`，参数 `limit,cursor,archived=true|false`。项目项额外返回调用者的 `myRoles`。原无界数组不再保留。
 - `GET /api/requirements`、`/api/tasks`、`/api/bugs` 同样迁移为 `{items,nextCursor}`。筛选为 `projectId,ownerId,state,blocked=true|false,kind,requirementId`，`kind` 不得与路径冲突。
 - `GET /api/objects` 是上述三类的统一有界列表。`GET /api/my-work` 显示本人主责、指定检查/验收、明确开发/修复参与或已有测试记录、角色测试待办、可认领及管理范围内停用负责人的事项。`responsibility` 与主负责人字段分开；`flags` 显示未分配、停用负责人、修订影响、本人未填更新。未填提示只来自本人主责或明确参与，不将别人任务算作本人贡献。
+- `GET /api/my-progress` 使用相同有界分页及筛选，并支持标题/编号 `q` 搜索；仅返回本人负责、指定检查/验收或已有实际参与/测试记录的未归档项目事项，包含已完成工作供补记。它不改变 `/api/my-work` 的未完成口径，也不授予新增写权限。游标绑定调用人、接口及筛选，错误读取保留为错误。
+- 工作列表的 `flags.invalidOwner` 包括停用及失去对应岗位的负责人；产品与匹配岗位负责人可在相关队列找到这些未完事项，实际改派仍需原权限。`parentNotExecutable` 只提示关联任务的父需求执行条件，不能代替当前岗位或原子领取校验。
 - `GET /api/search?q=...` 对编号或标题做字面子串搜索，支持相同筛选/分页。游标绑定调用人、接口与规范化筛选条件，不能换查询复用；每页继续传原筛选与 `nextCursor`。
 - `GET /api/projects/:id/overview` 返回 `{project,myRoles,counts,attention}`；`counts` 按对象类型和实际状态计数，`attention` 分别为阻塞与未分配，不制造完成率。
-- `GET /api/members` 返回安全显示目录 `{items,nextCursor}`，参数 `limit,cursor,active=true|false,projectId`。仅返回 `id,displayName,active,isAdmin,version`；指定项目时额外带该成员最多四项 `roles`。不返回登录名、密码散列、票据或会话数据。
+- `GET /api/members` 返回安全显示目录 `{items,nextCursor}`，参数 `limit,cursor,active=true|false,projectId`。仅返回 `id,displayName,active,isAdmin,version,activated`；`activated` 由是否已有密码凭据派生，界面区分待激活与有效状态并显示安全账号标识。指定项目时额外带该成员最多四项 `roles`。不返回登录名、密码散列、票据或会话数据。
 - `GET /api/tests` 保留无分页参数时的数组形状，但默认最多 20 项；传 `limit/afterSeq/cutoffSeq` 时返回既有 `SeqPage` 信封。`kind,id` 必须成对，测试结果按不可变 `recorded_seq` 排序。`GET /api/requirements/:id/acceptance` 采用相同有界兼容约定。
 - `GET /api/audit/:kind/:id` 允许 `kind=member|project`，读取安全管理事件，返回 `SeqPage`，默认 20，上限 100。所有有效成员可读，写权限不变。
 - `GET /api/requirements/:id/revision-history` 将不可变范围记录按版本分页，返回 `SeqPage`；`afterSeq/cutoffSeq` 对应范围 `version`，每项同时保留功能修订 `revision`、当时范围快照和变更原因。旧 `/revisions` 数组默认最多 20 修订/每修订 20 范围，可通过 `afterSeq`（修订号）继续；完整范围历史使用新接口。

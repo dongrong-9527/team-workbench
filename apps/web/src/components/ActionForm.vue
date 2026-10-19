@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
-import { request, ApiError } from "../api/client";
+import { request, allPages, ApiError } from "../api/client";
+import { useReadScope } from "../composables/readScope";
 import { state, zh, beginMutation } from "../state";
 import ADrawer from "ant-design-vue/es/drawer";
 import ConflictNotice from "./ConflictNotice.vue";
@@ -33,6 +34,36 @@ const props = defineProps<{
   sensitive?: boolean;
 }>();
 const emit = defineEmits<{ saved: [result: any]; cancel: [] }>();
+const bugOptions = ref(props.spec.fields.find((field) => field.key === "bugId")?.options ?? []),
+  bugOptionsBusy = ref(false),
+  bugOptionsError = ref("");
+const bugReads = useReadScope(() => JSON.stringify([props.draftKey, props.spec.relatedBugContext]));
+const bugRegistrationUrl = computed(() => {
+  const context = props.spec.relatedBugContext;
+  if (!context) return "";
+  const query = new URLSearchParams({ create: "bug" });
+  for (const key of ["requirementId", "taskId", "role"] as const)
+    if (context[key]) query.set(key, context[key]);
+  return `/projects/${encodeURIComponent(context.projectId)}?${query}`;
+});
+async function refreshBugs() {
+  const context = props.spec.relatedBugContext;
+  if (!context) return;
+  const read = bugReads.begin();
+  if (!read) return;
+  bugOptionsBusy.value = true;
+  bugOptionsError.value = "";
+  try {
+    const bugs = await allPages<any>(`/api/bugs?projectId=${encodeURIComponent(context.projectId)}`, read.valid);
+    read.commit(() => {
+      bugOptions.value = bugs.map((bug) => ({ value: bug.id, label: `${bug.title} · ${bug.id.slice(0, 8)}` }));
+    });
+  } catch (error) {
+    if (read.valid()) bugOptionsError.value = (error as Error).message;
+  } finally {
+    read.finish(() => { bugOptionsBusy.value = false; });
+  }
+}
 const expandedForm = computed(
   () =>
     props.spec.fields.length > 4 ||
@@ -76,15 +107,15 @@ const evidenceContext = computed(() => {
   // An explicit conflict adoption can advance the factory's captured revision.
   // Recompute that context when the user adopts the corresponding version.
   const contextVersion = version.value;
-  const body = props.spec.body(props.spec.initial);
+  const body = pageFormKind.value === "test" ? props.spec.body(props.spec.initial) : undefined;
   const target =
     pageFormKind.value === "test"
-      ? (body.target as { kind: string; id: string })
+      ? (body!.target as { kind: string; id: string })
       : { kind: "requirement", id: props.spec.path.split("/")[3] };
   return {
     version: contextVersion,
     target,
-    revision: body.revision,
+    revision: pageFormKind.value === "acceptance" ? values.value.acceptanceRevision : body?.revision,
     title: props.spec.initial.title || props.spec.description || target.id,
   };
 });
@@ -134,8 +165,8 @@ const progressDrawer = computed(() => {
 });
 const creationProject = computed(() => {
   if (!creationKind.value) return undefined;
-  // Creation specs carry project context in their existing pure body projection.
-  const projectId = props.spec.body(props.spec.initial).projectId;
+  // Display must not execute submit-time validation on an untouched draft.
+  const projectId = props.spec.projectId;
   return state.projects.find((project) => project.id === projectId);
 });
 const creationTitle = computed(() =>
@@ -512,6 +543,7 @@ const textRules = (label: string, max: number, required = false) => [
 onBeforeRouteLeave(() => !state.mutationPending);
 onBeforeRouteUpdate(() => !state.mutationPending);
 onMounted(async () => {
+  void refreshBugs();
   document.addEventListener("keydown", trapProgressFocus);
   await nextTick();
   prepareProgressDialog();
@@ -700,7 +732,9 @@ onUnmounted(() => {
                       v-else-if="f.type === 'select'"
                       :id="'field-' + f.key"
                       :value="values[f.key]"
-                      :options="f.optionsFor ? f.optionsFor(values) : f.options"
+                      :options="f.key === 'bugId' && spec.relatedBugContext ? bugOptions : f.optionsFor ? f.optionsFor(values) : f.options"
+                      :show-search="f.key === 'bugId'"
+                      option-filter-prop="label"
                       :placeholder="'请选择' + f.label"
                       :allow-clear="!f.required"
                       :disabled="f.disabled"
@@ -877,8 +911,15 @@ onUnmounted(() => {
                       "
                       :maxlength="f.max ?? 200"
                       :autocomplete="sensitive ? 'off' : undefined"
+                      :disabled="f.disabled"
                     />
                     <small v-if="f.help" class="muted">{{ f.help }}</small>
+                    <div v-if="f.key === 'bugId' && spec.relatedBugContext" class="form-actions">
+                      <a :href="bugRegistrationUrl" target="_blank" rel="noopener">在新页登记 Bug</a>
+                      <AButton :loading="bugOptionsBusy" @click="refreshBugs">刷新 Bug 列表</AButton>
+                      <p>当前填写保留在本页。登记后返回并刷新列表，再选择要关联的实际 Bug。</p>
+                      <AAlert v-if="bugOptionsError" type="error" role="alert" show-icon :message="bugOptionsError" />
+                    </div>
                   </AForm.Item>
                   <AForm.Item
                     v-if="

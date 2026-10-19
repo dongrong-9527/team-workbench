@@ -102,6 +102,10 @@ const requestStatus = computed(() =>
 const projectMembers = computed(() =>
   (state.projectMembers[projectId.value] ?? []).filter((m) => m.active),
 );
+const missingRoles = computed(() => ["product", "frontend", "backend", "test"].filter(
+  (role) => !projectMembers.value.some((member) => member.roles?.some((entry) => entry.role === role)),
+));
+const missingRoleText = computed(() => missingRoles.value.map((role) => zh(role)).join("、"));
 const listTitle = computed(() =>
   route.query.q
     ? "搜索“" + route.query.q + "”"
@@ -227,6 +231,27 @@ function create(kind: string) {
   form.value = createForm(kind, projectId.value);
   version.value = undefined;
   formKey.value = "create:" + kind + ":" + projectId.value;
+}
+watch(() => [overview.value?.project.id, route.query.create, route.query.requirementId, route.query.taskId, route.query.role], () => {
+  if (route.query.create !== "bug" || !overview.value || form.value) return;
+  if (!canCreateBug.value || overview.value.project.archived) {
+    notice.value = "当前项目没有登记 Bug 的权限，或项目已归档。";
+    return;
+  }
+  create("bug");
+  for (const key of ["requirementId", "taskId"])
+    if (typeof route.query[key] === "string" && route.query[key].length <= 128)
+      form.value!.initial[key] = route.query[key];
+  if (["frontend", "backend", "test"].includes(String(route.query.role)))
+    form.value!.initial.role = route.query.role;
+  formKey.value += ":" + JSON.stringify([form.value!.initial.requirementId, form.value!.initial.taskId]);
+}, { immediate: true });
+function cancelForm() {
+  form.value = undefined;
+  if (route.query.create === "bug") {
+    const { create: _create, requirementId: _requirement, taskId: _task, role: _role, ...query } = route.query;
+    void router.replace({ path: route.path, query });
+  }
 }
 function projectAction(a: string, selected?: any) {
   const p = selected ?? overview.value?.project;
@@ -535,6 +560,10 @@ async function saved(result: any) {
                 .join("、")
             }}
           </p>
+          <p v-if="missingRoles.length">尚未配置岗位：{{ missingRoleText }}。请按项目实际分工补齐。</p>
+          <p v-if="missingRoles.includes('product')">尚未配置产品角色，暂不能指定产品验收人。</p>
+          <p v-if="missingRoles.includes('test')">尚未配置测试角色，测试工作需要相应岗位成员配合。</p>
+          <p>产品验收人须未参与该需求的实际开发或修复；角色兼任本身不等于已参与。</p>
         </div>
         <div class="guide-actions">
           <RouterLink
@@ -864,7 +893,7 @@ async function saved(result: any) {
       :draft-key="formKey"
       :version="version"
       @saved="saved"
-      @cancel="form = undefined"
+      @cancel="cancelForm"
     />
   </div>
 </template>

@@ -14,8 +14,10 @@ export interface Field {
 }
 export interface FormSpec {
   title: string;
+  projectId?: string;
   description?: string;
   impact?: string;
+  relatedBugContext?: { projectId: string; requirementId?: string; taskId?: string; role?: string };
   fields: Field[];
   initial: Record<string, any>;
   path: string;
@@ -242,6 +244,7 @@ export function createForm(
   scopeMembers(fields, projectId, kind);
   return {
     title: `新建${zh(kind)}`,
+    projectId,
     path: `/api/${kind === "requirement" ? "requirements" : kind === "task" ? "tasks" : "bugs"}`,
     fields,
     initial,
@@ -344,6 +347,7 @@ export const actionNames: Record<string, string> = {
   test: "新增测试记录",
   submitAcceptance: "提交产品验收",
   acceptance: "产品验收",
+  returnAcceptance: "记录验收退回",
   waiver: "Bug 延期豁免",
 };
 export function actionForm(
@@ -497,7 +501,10 @@ export function actionForm(
       field("checks", "逐项测试结果", "results"),
       field("reusedFromId", "复用测试记录编号", "text", false),
       field("reuseReason", "复用原因", "textarea", false),
-      field("bugId", "关联 Bug 编号", "text", false),
+      field("bugId", "关联 Bug", "select", false, {
+        options: linked.filter((x) => x.objectKind === "bug" && x.projectId === o.projectId)
+          .map((x) => ({ value: x.id, label: `${x.title} · ${x.id.slice(0, 8)}` })),
+      }),
     ];
     const test = (v: any) => ({
       target: { kind, id: o.id },
@@ -546,7 +553,7 @@ export function actionForm(
           : field("resetToPending", "重置为待处理", "checkbox", false),
       );
     if (action === "cancel" && req)
-      fields.push(field("taskDisposition", "关联任务处置", "dispositions"));
+      fields.push(field("taskDisposition", "关联任务处置", "dispositions", false));
     body = (v) => ({
       action,
       ...pick(v, [
@@ -730,8 +737,10 @@ export function actionForm(
     fields = [field("targetVersion", "目标版本")];
     body = (v) => ({ revision: o.revision, targetVersion: v.targetVersion });
   }
-  if (action === "acceptance") {
+  if (action === "acceptance" || action === "returnAcceptance") {
+    const returnOnly = action === "returnAcceptance";
     path = base + "/acceptance";
+    initial.decision = returnOnly ? "return" : "pass";
     initial.acceptanceRevision = o.revision;
     initial.criteria = o.criteria.map((c: any) => ({
       ...c,
@@ -754,7 +763,14 @@ export function actionForm(
           .map((x) => ({ value: x.id, label: x.title })),
       }),
     ];
-    body = (v) => ({
+    if (returnOnly) {
+      fields.find((f) => f.key === "decision")!.disabled = true;
+      fields.find((f) => f.key === "targetVersion")!.disabled = true;
+    }
+    body = (v) => {
+      if (returnOnly && (!o.acceptanceRound || o.acceptanceRound.revision !== o.revision || o.acceptanceRound.targetVersion !== o.acceptanceTargetVersion))
+        throw new Error("当前范围没有可记录退回的验收轮次，请返回详情重新核对。");
+      return {
       revision: o.revision,
       ...pick(v, [
         "decision",
@@ -763,12 +779,14 @@ export function actionForm(
         "reworkTaskIds",
         "bugIds",
       ]),
+      ...(returnOnly ? { decision: "return", targetVersion: o.acceptanceRound.targetVersion } : {}),
       criteria: v.criteria.map((c: any) => ({
         id: c.id,
         passed: c.passed,
         ...(c.note ? { note: c.note } : {}),
       })),
-    });
+      };
+    };
   }
   if (action === "waiver") {
     path = base + "/bug-waivers";
@@ -830,11 +848,19 @@ export function actionForm(
     initial,
     fields,
     body,
+    ...(["checkPass", "checkFail", "verifyPass", "verifyFail", "test"].includes(action) ? {
+      relatedBugContext: {
+        projectId: o.projectId,
+        requirementId: req ? o.id : o.requirementId ?? undefined,
+        taskId: kind === "task" ? o.id : o.taskId ?? undefined,
+        role: kind === "task" && o.kind !== "other" ? o.kind : o.role,
+      },
+    } : {}),
     adopt: correction
       ? (current, values) => {
           if (typeof current.id === "string") values.correctsId = current.id;
         }
-      : action === "acceptance"
+      : ["acceptance", "returnAcceptance"].includes(action)
         ? (current, values) => {
             if (
               !Array.isArray(current.criteria) ||

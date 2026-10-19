@@ -61,8 +61,9 @@ it("action fields advertise endpoint-specific narrative and scalar bounds", () =
       environment: 2000,
       reusedFromId: 128,
       reuseReason: 4000,
-      bugId: 128,
     });
+    expect(actionForm(kind, object, "test").fields.find((f) => f.key === "bugId"))
+      .toMatchObject({ type: "select", max: 128 });
   }
   expect(
     maxima(actionForm("requirement", object, "acceptance").fields),

@@ -4,6 +4,7 @@ export interface Member {
   id: string;
   displayName: string;
   active: boolean;
+  activated?: boolean;
   isAdmin: boolean;
   version?: number;
   roles?: { role: string; lead: number }[];

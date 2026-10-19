@@ -6,6 +6,7 @@ import { getTask } from "../tasks/service.js";
 import { getBug } from "../bugs/service.js";
 import { getRequirement } from "../requirements/service.js";
 import { localDate } from "../history/query.js";
+import { revisionImpact } from "./revision-impact.js";
 export interface Query {
   limit: number;
   cursor?: string;
@@ -123,7 +124,7 @@ export function directory(db: Database, q: Query, actorId: string) {
   }
   const rows = db
     .prepare(
-      `SELECT m.rowid AS pos,m.id,m.name AS displayName,m.active,m.is_admin AS isAdmin,m.version FROM members m WHERE ${where} ORDER BY m.rowid LIMIT ?`,
+      `SELECT m.rowid AS pos,m.id,m.name AS displayName,m.active,m.is_admin AS isAdmin,m.version,(m.password_hash IS NOT NULL) AS activated FROM members m WHERE ${where} ORDER BY m.rowid LIMIT ?`,
     )
     .all(...args, q.limit + 1) as any[];
   const more = rows.length > q.limit;
@@ -131,6 +132,7 @@ export function directory(db: Database, q: Query, actorId: string) {
     items: rows.slice(0, q.limit).map(({ pos, ...r }) => ({
       ...r,
       active: !!r.active,
+      activated: !!r.activated,
       isAdmin: !!r.isAdmin,
       ...(q.projectId
         ? {
@@ -203,21 +205,25 @@ export function objectsPage(
     );
     args.push(q.q, q.q);
   }
-  if (scope === "mine") {
+  const requiredRole = `CASE WHEN o.kind='requirement' THEN 'product' WHEN o.kind='task' AND json_extract(o.current,'$.kind')!='other' THEN json_extract(o.current,'$.kind') ELSE json_extract(o.current,'$.role') END`;
+  const ownerId = `COALESCE(NULLIF(json_extract(o.current,'$.ownerId'),''),NULLIF(json_extract(o.current,'$.acceptorId'),''))`;
+  const invalidOwner = `(${ownerId} IS NOT NULL AND (COALESCE(m.active,0)=0 OR NOT EXISTS(SELECT 1 FROM roles own_role WHERE own_role.project_id=o.project_id AND own_role.member_id=${ownerId} AND own_role.role=${requiredRole})))`;
+  if (scope === "mine" || scope === "progress") {
+    const relatedToActor = `(json_extract(o.current,'$.ownerId')=? OR json_extract(o.current,'$.acceptorId')=? OR json_extract(o.current,'$.reviewerId')=? OR EXISTS(SELECT 1 FROM execution_participations e WHERE e.object_id=o.id AND e.member_id=?) OR EXISTS(SELECT 1 FROM test_records tr WHERE tr.target_id=o.id AND json_extract(tr.record,'$.testerId')=?))`;
     clauses.push(
-      `(json_extract(o.current,'$.ownerId')=? OR json_extract(o.current,'$.acceptorId')=? OR json_extract(o.current,'$.reviewerId')=? OR EXISTS(SELECT 1 FROM execution_participations e WHERE e.object_id=o.id AND e.member_id=?) OR EXISTS(SELECT 1 FROM test_records tr WHERE tr.target_id=o.id AND json_extract(tr.record,'$.testerId')=?) OR (o.kind IN ('task','bug') AND json_extract(o.current,'$.ownerId') IS NULL AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role=CASE WHEN o.kind='task' AND json_extract(o.current,'$.kind')!='other' THEN json_extract(o.current,'$.kind') ELSE json_extract(o.current,'$.role') END)) OR ((o.kind='bug' AND json_extract(o.current,'$.state')='pending_verify' OR o.kind='requirement' AND json_extract(o.current,'$.state')='active' AND json_extract(o.current,'$.scopeConfirmed')=1) AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role='test')) OR (m.active=0 AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND (r.role='product' OR r.lead=1))))`,
+      scope === "progress" ? relatedToActor :
+        `(${relatedToActor} OR (o.kind IN ('task','bug') AND json_extract(o.current,'$.ownerId') IS NULL AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role=${requiredRole})) OR ((o.kind='bug' AND json_extract(o.current,'$.state')='pending_verify' OR o.kind='requirement' AND json_extract(o.current,'$.state')='active' AND json_extract(o.current,'$.scopeConfirmed')=1) AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role='test')) OR (${invalidOwner} AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND (r.role='product' OR (r.role=${requiredRole} AND r.lead=1)))))`,
     );
-    args.push(...Array(8).fill(actorId));
-    clauses.push(
-      "json_extract(o.current,'$.state') NOT IN ('done','cancelled','closed','rejected','accepted')",
-    );
+    args.push(...Array(scope === "progress" ? 5 : 8).fill(actorId));
+    if (scope === "progress") clauses.push("p.archived=0");
+    else clauses.push("json_extract(o.current,'$.state') NOT IN ('done','cancelled','closed','rejected','accepted')");
   }
   const rows = db
     .prepare(
-      `SELECT o.rowid AS pos,o.id,o.kind,p.name AS projectName,p.archived,m.name AS ownerName,m.active AS ownerActive FROM objects o JOIN projects p ON p.id=o.project_id LEFT JOIN members m ON m.id=COALESCE(json_extract(o.current,'$.ownerId'),json_extract(o.current,'$.acceptorId')) WHERE ${clauses.join(" AND ")} ORDER BY o.rowid LIMIT ?`,
+      `SELECT o.rowid AS pos,o.id,o.kind,p.name AS projectName,p.archived,m.name AS ownerName,m.active AS ownerActive,${invalidOwner} AS ownerInvalid FROM objects o JOIN projects p ON p.id=o.project_id LEFT JOIN members m ON m.id=${ownerId} WHERE ${clauses.join(" AND ")} ORDER BY o.rowid LIMIT ?`,
     )
     .all(...args, q.limit + 1) as any[];
-  const items = rows.slice(0, q.limit).map(({ pos, kind, ...meta }) => {
+  const items = rows.slice(0, q.limit).map(({ pos, kind, ownerInvalid, ...meta }) => {
     const o =
       kind === "task"
         ? getTask(db, meta.id)
@@ -225,6 +231,9 @@ export function objectsPage(
           ? getBug(db, meta.id)
           : getRequirement(db, meta.id);
     const own = (o as any).ownerId === actorId;
+    const impact = kind === "task" ? revisionImpact(db, o as ReturnType<typeof getTask>) : null;
+    const parent = kind === "task" && (o as any).requirementId
+      ? getRequirement(db, (o as any).requirementId) : undefined;
     const participated = !!db
       .prepare(
         "SELECT 1 FROM execution_participations WHERE object_id=? AND member_id=? UNION ALL SELECT 1 FROM test_records WHERE target_id=? AND tester_id=? LIMIT 1",
@@ -240,10 +249,13 @@ export function objectsPage(
       ...o,
       ...meta,
       objectKind: kind,
+      ...(impact ? { revisionImpact: impact } : {}),
       flags: {
         unassigned: kind !== "requirement" && !(o as any).ownerId,
         inactiveOwner: meta.ownerActive === 0,
-        pendingRevision: !!(o as any).pendingChange,
+        invalidOwner: !!ownerInvalid,
+        parentNotExecutable: !!parent && (!['ready', 'active'].includes(parent.state) || !parent.scopeConfirmed || parent.blocked),
+        pendingRevision: !!impact?.needsAttention,
         missingUpdate: (own || participated) && !updated,
       },
       responsibility: own

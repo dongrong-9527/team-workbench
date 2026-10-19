@@ -17,6 +17,7 @@ import { useReadScope } from "../composables/readScope";
 import AButton from "ant-design-vue/es/button";
 import ASelect from "ant-design-vue/es/select";
 import ATag from "ant-design-vue/es/tag";
+import AAlert from "ant-design-vue/es/alert";
 import WorkList from "../components/WorkList.vue";
 const items = ref<any[]>([]),
   cursor = ref<string | null>(null),
@@ -47,6 +48,7 @@ const claimable = computed(() =>
       !x.ownerId &&
       !x.archived &&
       !x.blocked &&
+      !x.flags?.parentNotExecutable &&
       x.state === (x.objectKind === "task" ? "pending" : "ready") &&
       state.projects
         .find((p) => p.id === x.projectId)
@@ -91,11 +93,16 @@ const tabs = computed(() => [
 ]);
 const attention = computed(() =>
   items.value.filter(
-    (x) => x.blocked || x.flags?.inactiveOwner || x.flags?.pendingRevision,
+    (x) => x.blocked || x.flags?.inactiveOwner || x.flags?.invalidOwner || x.flags?.pendingRevision,
   ),
 );
+const progressRows = ref<any[]>([]),
+  progressCursor = ref<string | null>(null),
+  progressBusy = ref(false),
+  progressError = ref(""),
+  progressSearch = ref("");
 const progressItems = computed(() =>
-  items.value.filter(
+  progressRows.value.filter(
     (x) =>
       !x.archived &&
       state.projects.find((p) => p.id === x.projectId)?.myRoles.length &&
@@ -104,6 +111,31 @@ const progressItems = computed(() =>
       ),
   ),
 );
+const progressReads = useReadScope(() => JSON.stringify([progressOpen.value, state.projectId, progressSearch.value]));
+async function loadProgress(more = false) {
+  if (!progressOpen.value) return;
+  const read = progressReads.begin(more);
+  if (!read || (more && !progressCursor.value)) return;
+  if (!more) { progressRows.value = []; progressCursor.value = null; }
+  progressBusy.value = true;
+  progressError.value = "";
+  const q = new URLSearchParams();
+  if (state.projectId) q.set("projectId", state.projectId);
+  if (progressSearch.value) q.set("q", progressSearch.value);
+  if (more && progressCursor.value) q.set("cursor", progressCursor.value);
+  try {
+    const result = await request<Page<any>>("/api/my-progress?" + q);
+    read.commit(() => {
+      progressRows.value = more ? [...progressRows.value, ...result.items] : result.items;
+      progressCursor.value = result.nextCursor;
+    });
+  } catch (e) {
+    if (read.valid()) progressError.value = (e as Error).message;
+  } finally {
+    read.finish(() => { progressBusy.value = false; });
+  }
+}
+watch(() => [progressOpen.value, state.projectId, progressSearch.value], () => loadProgress(), { immediate: true });
 const stats = computed(() => [
   {
     name: "我负责的未完成工作",
@@ -378,7 +410,9 @@ watch(
                   ? "阻塞"
                   : o.flags.inactiveOwner
                     ? "负责人已停用"
-                    : "修订待处理"
+                    : o.flags.invalidOwner
+                      ? "负责人岗位权限已变更"
+                    : o.revisionImpact?.message ?? "修订待处理"
               }}</span
             ><strong>{{ o.title }}</strong>
             <p>保留现有责任与记录，进入详情查看需要的协助。</p>
@@ -420,7 +454,12 @@ watch(
     :footer="null"
     :width="540"
   >
-    <p>选择实际参与的工作，填写今天完成的内容、下一步与需要的协助。</p>
+    <p>包含已完成事项，可补记当天或过去的实际贡献；文字不会自动改变状态。</p>
+    <AInput v-model:value="progressSearch" aria-label="搜索可补记事项" placeholder="按标题或编号查找，包含已完成工作" :maxlength="200" />
+    <p v-if="progressBusy" role="status">正在读取可补记事项…</p>
+    <AAlert v-if="progressError" type="error" role="alert" show-icon>
+      <template #message>{{ progressError }} <AButton @click="loadProgress()">重试读取事项</AButton></template>
+    </AAlert>
     <div class="progress-options">
       <RouterLink
         v-for="o in progressItems"
@@ -432,9 +471,10 @@ watch(
         >{{ o.title }}</RouterLink
       >
     </div>
-    <p v-if="!progressItems.length" class="empty">
-      当前已加载事项中没有可填写的工作。请先进入有项目角色的工作详情。
+    <p v-if="!progressBusy && !progressError && !progressItems.length" class="empty">
+      当前没有匹配的可补记事项。可调整搜索，或进入有项目角色的工作详情。
     </p>
+    <AButton v-if="progressCursor" :disabled="progressBusy" @click="loadProgress(true)">加载更多可补记事项</AButton>
     <div class="form-actions">
       <AButton @click="progressOpen = false">取消</AButton>
     </div>

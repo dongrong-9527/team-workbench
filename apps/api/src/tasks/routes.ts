@@ -1,4 +1,5 @@
 import { BUSINESS_BODY_LIMIT } from "../../../../packages/contracts/src/input-limits.js";
+import { revisionImpact } from "../workbench/revision-impact.js";
 import { objectsPage, parseQuery } from "../workbench/query.js";
 import { parseTest, validateDefinitions } from "../testing/routes.js";
 import type { FastifyInstance } from "fastify";
@@ -44,7 +45,9 @@ export function taskRoutes(app: FastifyInstance, db: Database) {
   });
   app.get<{ Params: { id: string } }>("/api/tasks/:id", (request) => {
     requireRequest(db, request);
-    return getTask(db, request.params.id);
+    const task = getTask(db, request.params.id);
+    const impact = revisionImpact(db, task);
+    return impact ? { ...task, revisionImpact: impact } : task;
   });
   app.post("/api/tasks", { bodyLimit: BUSINESS_BODY_LIMIT }, (request) => {
     const ctx = mutationContext(db, request);

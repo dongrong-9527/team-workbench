@@ -18,6 +18,7 @@ import {
   getRequirement,
 } from "./service.js";
 import { getRevisions, scopeActorName } from "./revisions.js";
+import { currentAcceptanceRound } from "../acceptance/round.js";
 function source(value: unknown) {
   const b = fields(
     value,
@@ -102,7 +103,9 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
         });
         if (!suffix) {
           fields(request.query, []);
-          return getRequirement(db, request.params.id);
+          const requirement = getRequirement(db, request.params.id);
+          const round = currentAcceptanceRound(db, requirement);
+          return round ? { ...requirement, acceptanceRound: round } : requirement;
         }
         const q = fields(request.query, [], ["limit", "afterSeq"]);
         const paging = pageInput(db, { ...q, limit: q.limit ?? "20" });

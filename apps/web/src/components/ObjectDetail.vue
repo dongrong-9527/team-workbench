@@ -133,11 +133,15 @@ const project = computed(() =>
   canTest = computed(() =>
     props.kind === "task"
       ? o.value?.reviewerId === state.member?.id &&
-        (["frontend", "backend"].includes(o.value.kind)
+        (["frontend", "backend"].includes(scope.value)
           ? has("test")
           : has("product") || lead.value)
       : has("test"),
   );
+const parentNotExecutable = computed(() =>
+  props.kind === "task" && !!o.value?.requirementId &&
+  (!parent.value || !["ready", "active"].includes(parent.value.state) || !parent.value.scopeConfirmed || parent.value.blocked),
+);
 const actions = computed(() => {
   if (!o.value || project.value?.archived) return [];
   const x = o.value,
@@ -151,26 +155,33 @@ const actions = computed(() => {
       if (has("product")) {
         if (["refining", "active"].includes(s)) a.push("makeReady");
         if (s === "ready") a.push("start");
-        if (s !== "cancelled") a.push("revise", "cancel");
+        if (s !== "cancelled") {
+          a.push("revise");
+          if (["draft", "refining", "ready", "active", "pending_acceptance"].includes(s)) a.push("cancel");
+        }
         else a.push("restore");
       }
     }
-    if (has("test")) a.push("test");
+    if (has("test") && s !== "cancelled" && x.scopeConfirmed && !x.blocked) a.push("test");
     if (manage.value && s === "active") a.push("submitAcceptance");
     if (has("product")) a.push("waiver");
     if (has("product") && x.acceptorId === state.member?.id) {
       if (s === "pending_acceptance") a.push("acceptance");
+      else if (["active", "accepted"].includes(s) && x.acceptanceRound) a.push("returnAcceptance");
     }
   } else {
     if (
       !x.ownerId &&
+      !parentNotExecutable.value &&
       has(scope.value) &&
       s === (props.kind === "task" ? "pending" : "ready")
     )
       a.push("claim");
     if (own.value) {
-      if (["pending", "ready"].includes(s)) a.push("start");
-      if (["active", "fixing"].includes(s)) a.push("submit");
+      if (!parentNotExecutable.value) {
+        if (["pending", "ready"].includes(s)) a.push("start");
+        if (["active", "fixing"].includes(s)) a.push("submit");
+      }
       if (props.kind === "task") a.push("requestTransfer");
     }
     if (
@@ -214,6 +225,7 @@ const primaryAction = computed(() =>
     "claim",
     "submit",
     "acceptance",
+    "returnAcceptance",
     "submitAcceptance",
     "start",
     "checkPass",
@@ -408,6 +420,8 @@ function split() {
         正在刷新详情，完成后可继续操作。
       </p>
       <p v-if="notice" class="success" role="status">{{ notice }}</p>
+      <AAlert v-if="parentNotExecutable" type="warning" show-icon
+        message="需求尚不可执行：请先确认需求范围、可执行状态及阻塞情况。" />
       <AAlert
         v-if="project?.archived"
         type="warning"
@@ -566,9 +580,9 @@ function split() {
                       linked.find((x) => x.id === id)?.title ?? id
                     }}</RouterLink>
                   </p>
-                  <p v-if="o.pendingChange" class="danger-note">
-                    修订待处理：R{{ o.pendingChange.revision }} ·
-                    {{ o.pendingChange.reason }}
+                  <p v-if="o.pendingChange" :class="o.revisionImpact?.needsAttention ? 'danger-note' : 'muted'">
+                    {{ o.revisionImpact?.message ?? '修订影响记录需核对。' }}
+                    变更原因：{{ o.pendingChange.reason }}
                   </p>
                 </section>
               </template>

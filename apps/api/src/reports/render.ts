@@ -17,10 +17,13 @@ const stateNames: Record<string, string> = {
   draft: "草稿",
   refining: "细化中",
   new: "待确认",
+  unconfirmed: "待确认",
+  fixing: "修复中",
   rejected: "已拒绝",
 };
 export function renderReport(s: ReportSources): string {
-  const state = (value: string) => stateNames[value] ?? value;
+  const state = (value: string, kind?: string) =>
+    kind === "bug" && value === "ready" ? "待修复" : stateNames[value] ?? value;
   const contribution = {
     development: "开发贡献",
     repair: "修复贡献",
@@ -78,7 +81,7 @@ export function renderReport(s: ReportSources): string {
         const current = states.find((e) => e.id === id)?.snapshot;
         for (const u of own.filter((u) => u.target.id === id))
           lines.push(
-            `今日进展：${id} ${current?.title ?? u.snapshot.title} — ${u.done}（${contribution[u.contributionType]}；状态：${current ? state(current.state) : "无当日状态"}；当时主负责人：${current?.ownerName ?? current?.ownerId ?? "未指定"}）`,
+            `今日进展：${id} ${current?.title ?? u.snapshot.title} — ${u.done}（${contribution[u.contributionType]}；状态：${current ? state(current.state, u.target.kind) : "无当日状态"}；当时主负责人：${current?.ownerName ?? current?.ownerId ?? "未指定"}）`,
           );
         for (const a of actions.filter((e) => e.event.target.id === id)) {
           const e = a.event,
@@ -89,7 +92,7 @@ export function renderReport(s: ReportSources): string {
               ? "记录测试结果"
               : e.action === "acceptanceRecorded"
                 ? "记录产品验收"
-                : `${before?.state ? state(String(before.state)) : "创建"} → ${state(String(after?.state))}`;
+                : `${before?.state ? state(String(before.state), e.target.kind) : "创建"} → ${state(String(after?.state), e.target.kind)}`;
           lines.push(
             `状态操作：${id} ${current?.title ?? ""} — ${e.actorName ?? name("member", memberId)}：${action}`,
           );
@@ -105,7 +108,7 @@ export function renderReport(s: ReportSources): string {
       );
       if (attention.length)
         lines.push(
-          `待关注（截止时本人负责的阻塞事项）：${attention.map((e) => `${e.id} ${e.snapshot.title}，${state(e.snapshot.state)}，阻塞`).join("；")}`,
+          `待关注（截止时本人负责的阻塞事项）：${attention.map((e) => `${e.id} ${e.snapshot.title}，${state(e.snapshot.state, e.target.kind)}，阻塞`).join("；")}`,
         );
       lines.push(
         `明日计划：${

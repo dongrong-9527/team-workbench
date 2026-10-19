@@ -495,12 +495,14 @@ async function saved(r: any) {
                     <span v-if="projectId && !m.roles?.length">
                       · 全项目可读</span
                     >
-                  </div></template
+                  </div>
+                  <div class="revision" :title="m.id" :aria-label="'账号标识 ' + m.id">账号标识：{{ m.id.slice(0, 8) }}</div></template
                 >
                 <template v-else-if="column.key === 'active'"
                   ><ATag :color="m.active ? 'success' : 'warning'">{{
                     m.active ? "有效" : "已停用"
-                  }}</ATag></template
+                  }}</ATag>
+                  <ATag v-if="m.active" :color="m.activated ? 'success' : 'processing'">{{ m.activated ? '已激活' : '待激活' }}</ATag></template
                 >
                 <template v-else-if="column.key === 'roles'"
                   ><ATag v-for="r in m.roles"

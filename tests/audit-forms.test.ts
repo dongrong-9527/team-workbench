@@ -79,3 +79,30 @@ it("correction locks the actual contribution type and ignores stale restored cla
   expect(corrected.status).toBe(200);
   expect(corrected.body).toMatchObject({ contributionType: "testing", version: 2 });
 });
+
+it("return-only acceptance preserves the submitted build and rejects an adopted unrelated revision", () => {
+  const r = { id: "synthetic-round", projectId: "p1", title: "Current submitted scope", version: 4, revision: 1, state: "active", role: "backend", acceptorId: "product", acceptanceTargetVersion: "build-1",
+    acceptanceRound: { revision: 1, targetVersion: "build-1", submittedSeq: 5 }, criteria: [{ id: "a", text: "Behavior", required: true }] };
+  const form = actionForm("requirement", r, "returnAcceptance");
+  expect(form.path).toBe(`/api/requirements/${r.id}/acceptance`);
+  expect(form.body({ ...form.initial, decision: "pass", targetVersion: "different" })).toMatchObject({ decision: "return", revision: 1, targetVersion: "build-1" });
+  expect(form.fields.find((x) => x.key === "decision")?.disabled).toBe(true);
+  const values = structuredClone(form.initial);
+  form.adopt!({ ...r, version: 5, revision: 2, acceptanceRound: null }, values);
+  expect(() => form.body(values)).toThrow(/验收轮次/);
+});
+
+it("test evidence selects same-project existing Bugs and carries explicit registration context", () => {
+  const task = { id: "synthetic-task", projectId: "p1", requirementId: "synthetic-requirement", title: "Check this work", kind: "backend", definitionOfDone: "Check", state: "pending_check", version: 2 };
+  const linked = [ { id: "bug-one", projectId: "p1", title: "Existing discrepancy", objectKind: "bug" }, { id: "foreign-bug", projectId: "p2", title: "Other project", objectKind: "bug" } ];
+  const form = actionForm("task", task, "checkFail", linked);
+  expect(form.fields.find((x) => x.key === "bugId")).toMatchObject({ type: "select", options: [{ value: "bug-one", label: "Existing discrepancy · bug-one" }] });
+  expect(form.relatedBugContext).toMatchObject({ projectId: "p1", requirementId: "synthetic-requirement", taskId: "synthetic-task", role: "backend" });
+});
+
+it("requirement cancellation permits an empty disposition when there are no unfinished tasks", () => {
+  const r = { id: "synthetic-no-tasks", projectId: "p1", title: "Empty work", version: 1, revision: 1, state: "draft", criteria: [], source: { description: "Source" } };
+  const form = actionForm("requirement", r, "cancel");
+  expect(form.fields.find((x) => x.key === "taskDisposition")?.required).toBe(false);
+  expect(form.body({ ...form.initial, reason: "Stop draft" })).toMatchObject({ action: "cancel", taskDisposition: [] });
+});
