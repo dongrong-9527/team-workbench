@@ -208,11 +208,14 @@ export function objectsPage(
   const requiredRole = `CASE WHEN o.kind='requirement' THEN 'product' WHEN o.kind='task' AND json_extract(o.current,'$.kind')!='other' THEN json_extract(o.current,'$.kind') ELSE json_extract(o.current,'$.role') END`;
   const ownerId = `COALESCE(NULLIF(json_extract(o.current,'$.ownerId'),''),NULLIF(json_extract(o.current,'$.acceptorId'),''))`;
   const invalidOwner = `(${ownerId} IS NOT NULL AND (COALESCE(m.active,0)=0 OR NOT EXISTS(SELECT 1 FROM roles own_role WHERE own_role.project_id=o.project_id AND own_role.member_id=${ownerId} AND own_role.role=${requiredRole})))`;
+  const reviewerId = `NULLIF(json_extract(o.current,'$.reviewerId'),'')`;
+  // Match tasks/service.validReviewer without changing assignment or write policy.
+  const invalidReviewer = `(o.kind='task' AND ${reviewerId} IS NOT NULL AND NOT EXISTS(SELECT 1 FROM members reviewer JOIN roles review_role ON review_role.member_id=reviewer.id WHERE reviewer.id=${reviewerId} AND reviewer.active=1 AND review_role.project_id=o.project_id AND ((${requiredRole} IN ('frontend','backend') AND review_role.role='test') OR (${requiredRole} NOT IN ('frontend','backend') AND (review_role.role='product' OR (review_role.role=${requiredRole} AND review_role.lead=1))))))`;
   if (scope === "mine" || scope === "progress") {
     const relatedToActor = `(json_extract(o.current,'$.ownerId')=? OR json_extract(o.current,'$.acceptorId')=? OR json_extract(o.current,'$.reviewerId')=? OR EXISTS(SELECT 1 FROM execution_participations e WHERE e.object_id=o.id AND e.member_id=?) OR EXISTS(SELECT 1 FROM test_records tr WHERE tr.target_id=o.id AND json_extract(tr.record,'$.testerId')=?))`;
     clauses.push(
       scope === "progress" ? relatedToActor :
-        `(${relatedToActor} OR (o.kind IN ('task','bug') AND json_extract(o.current,'$.ownerId') IS NULL AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role=${requiredRole})) OR ((o.kind='bug' AND json_extract(o.current,'$.state')='pending_verify' OR o.kind='requirement' AND json_extract(o.current,'$.state')='active' AND json_extract(o.current,'$.scopeConfirmed')=1) AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role='test')) OR (${invalidOwner} AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND (r.role='product' OR (r.role=${requiredRole} AND r.lead=1)))))`,
+        `(${relatedToActor} OR (o.kind IN ('task','bug') AND json_extract(o.current,'$.ownerId') IS NULL AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role=${requiredRole})) OR ((o.kind='bug' AND json_extract(o.current,'$.state')='pending_verify' OR o.kind='requirement' AND json_extract(o.current,'$.state')='active' AND json_extract(o.current,'$.scopeConfirmed')=1) AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND r.role='test')) OR ((${invalidOwner} OR ${invalidReviewer}) AND EXISTS(SELECT 1 FROM roles r WHERE r.project_id=o.project_id AND r.member_id=? AND (r.role='product' OR (r.role=${requiredRole} AND r.lead=1)))))`,
     );
     args.push(...Array(scope === "progress" ? 5 : 8).fill(actorId));
     if (scope === "progress") clauses.push("p.archived=0");
@@ -220,10 +223,10 @@ export function objectsPage(
   }
   const rows = db
     .prepare(
-      `SELECT o.rowid AS pos,o.id,o.kind,p.name AS projectName,p.archived,m.name AS ownerName,m.active AS ownerActive,${invalidOwner} AS ownerInvalid FROM objects o JOIN projects p ON p.id=o.project_id LEFT JOIN members m ON m.id=${ownerId} WHERE ${clauses.join(" AND ")} ORDER BY o.rowid LIMIT ?`,
+      `SELECT o.rowid AS pos,o.id,o.kind,p.name AS projectName,p.archived,m.name AS ownerName,m.active AS ownerActive,${invalidOwner} AS ownerInvalid,${invalidReviewer} AS reviewerInvalid FROM objects o JOIN projects p ON p.id=o.project_id LEFT JOIN members m ON m.id=${ownerId} WHERE ${clauses.join(" AND ")} ORDER BY o.rowid LIMIT ?`,
     )
     .all(...args, q.limit + 1) as any[];
-  const items = rows.slice(0, q.limit).map(({ pos, kind, ownerInvalid, ...meta }) => {
+  const items = rows.slice(0, q.limit).map(({ pos, kind, ownerInvalid, reviewerInvalid, ...meta }) => {
     const o =
       kind === "task"
         ? getTask(db, meta.id)
@@ -254,6 +257,7 @@ export function objectsPage(
         unassigned: kind !== "requirement" && !(o as any).ownerId,
         inactiveOwner: meta.ownerActive === 0,
         invalidOwner: !!ownerInvalid,
+        invalidReviewer: !!reviewerInvalid,
         parentNotExecutable: !!parent && (!['ready', 'active'].includes(parent.state) || !parent.scopeConfirmed || parent.blocked),
         pendingRevision: !!impact?.needsAttention,
         missingUpdate: (own || participated) && !updated,

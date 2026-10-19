@@ -2,7 +2,7 @@ import { test, expect } from "./fixtures.js";
 import { login } from "./helpers.js";
 import { api } from "./audit-helpers.js";
 
-test("F09 report source shows frozen plans obstacles and actual entry time for another author", async ({ page }) => {
+test("F09 report source shows frozen plans obstacles and actual entry time for another author", async ({ page }, info) => {
   await login(page, "product");
   const task = await api(page, "POST", "/api/tasks", { projectId: "p1", title: "合成F09来源核对", kind: "backend", definitionOfDone: "核对原文", priority: "medium", ownerId: "dev" });
   await login(page, "dev");
@@ -19,8 +19,10 @@ test("F09 report source shows frozen plans obstacles and actual entry time for a
   expect(await source.locator('[data-source-field="next"]').textContent()).toBe("原始计划\n保留原行");
   await expect(source.locator("time")).toHaveAttribute("datetime", update.recordedAt);
   await expect(source).not.toContainText("后来更正的计划");
+  await page.screenshot({ path: info.outputPath("F09-frozen-source-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(source).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("F09-frozen-source-mobile.png"), fullPage: true });
   expect((await api(page, "GET", `/api/reports/${report.id}`)).text).toBe(report.text);
 });

@@ -82,6 +82,19 @@ test("F05 correction locks classification while saving a new original-author tex
   const form = page.getByRole("dialog", { name: "更正我的工作更新", exact: true });
   await expect(form.getByRole("combobox", { name: "实际贡献类型", exact: true })).toBeDisabled();
   await expect(form).toContainText("更正保留原实际贡献类型");
+  await form.getByLabel("今天实际做了什么", { exact: true }).fill("恢复旧草稿中的实际贡献文字");
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some((key) => key.startsWith("workbench:draft:dev:task:") && JSON.parse(localStorage.getItem(key)!).values.correctsId))).toBe(true);
+  await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((key) => key.startsWith("workbench:draft:dev:task:") && JSON.parse(localStorage.getItem(key)!).values.correctsId)!;
+    const draft = JSON.parse(localStorage.getItem(key)!);
+    draft.values.contributionType = "testing";
+    localStorage.setItem(key, JSON.stringify(draft));
+  });
+  await page.reload();
+  await page.getByRole("button", { name: /^我的工作更新（/ }).click();
+  await page.getByRole("button", { name: "更正此条更新", exact: true }).click();
+  await expect(form.locator(".ant-select-selection-item").first()).toHaveText("开发");
+  await expect(form.getByLabel("今天实际做了什么", { exact: true })).toHaveValue("恢复旧草稿中的实际贡献文字");
   await form.getByLabel("今天实际做了什么", { exact: true }).fill("更正实际文字，保留原贡献归类");
   await form.getByLabel("操作原因", { exact: true }).fill("文字核对");
   await submit(page, "保存更新");
@@ -114,6 +127,41 @@ test("F06 revoked role is explained and product can reassign without restoring a
     const project = await api(admin, "GET", "/api/projects/p1");
     await api(admin, "PUT", "/api/projects/p1/roles", { memberId: "dev2", roles: original.map((x: any) => x.role), leads: original.filter((x: any) => x.lead).map((x: any) => x.role), expectedVersion: project.version });
     await adminContext.close();
+  }
+});
+
+test("F06 revoked reviewer reaches product attention and existing reviewer designation", async ({ page, browser, observeContext }, info) => {
+  let task = await createTask(page, "合成F06检查岗位交接");
+  await login(page, "dev");
+  task = await api(page, "POST", `/api/tasks/${task.id}/actions`, { action: "start", expectedVersion: task.version });
+  task = await api(page, "POST", `/api/tasks/${task.id}/actions`, { action: "submit", expectedVersion: task.version, evidence: { done: "实际工作", selfCheck: "完成自查", environment: "合成环境" } });
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  await observeContext(context);
+  const admin = await context.newPage();
+  await login(admin, "admin");
+  const members = (await api(admin, "GET", "/api/members?projectId=p1&limit=100")).items;
+  const originals = ["tester", "dev2"].map((id) => ({ id, roles: members.find((m: any) => m.id === id).roles }));
+  try {
+    for (const [memberId, roles] of [["tester", []], ["dev2", ["test"]]] as const) {
+      const project = await api(admin, "GET", "/api/projects/p1");
+      await api(admin, "PUT", "/api/projects/p1/roles", { memberId, roles, leads: [], expectedVersion: project.version });
+    }
+    await login(page, "product");
+    await page.goto("/my-work");
+    await expect(page.getByText("检查人岗位资格已失效", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(task.title, { exact: true }).first()).toBeVisible();
+    await page.screenshot({ path: info.outputPath("F06-reviewer-attention-desktop.png"), fullPage: true });
+    await detail(page, "task", task);
+    await page.getByRole("button", { name: "指定检查人", exact: true }).click();
+    await selectOption(page, "检查人", { value: "dev2", label: "许前端" });
+    await submit(page, "确认指定检查人");
+    expect((await api(page, "GET", `/api/tasks/${task.id}`)).reviewerId).toBe("dev2");
+  } finally {
+    for (const member of originals) {
+      const project = await api(admin, "GET", "/api/projects/p1");
+      await api(admin, "PUT", "/api/projects/p1/roles", { memberId: member.id, roles: member.roles.map((r: any) => r.role), leads: member.roles.filter((r: any) => r.lead).map((r: any) => r.role), expectedVersion: project.version });
+    }
+    await context.close();
   }
 });
 

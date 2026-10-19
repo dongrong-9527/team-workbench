@@ -93,7 +93,7 @@ const tabs = computed(() => [
 ]);
 const attention = computed(() =>
   items.value.filter(
-    (x) => x.blocked || x.flags?.inactiveOwner || x.flags?.invalidOwner || x.flags?.pendingRevision,
+    (x) => x.blocked || x.flags?.inactiveOwner || x.flags?.invalidOwner || x.flags?.invalidReviewer || x.flags?.pendingRevision,
   ),
 );
 const progressRows = ref<any[]>([]),
@@ -412,6 +412,8 @@ watch(
                     ? "负责人已停用"
                     : o.flags.invalidOwner
                       ? "负责人岗位权限已变更"
+                    : o.flags.invalidReviewer
+                      ? "检查人岗位资格已失效"
                     : o.revisionImpact?.message ?? "修订待处理"
               }}</span
             ><strong>{{ o.title }}</strong>

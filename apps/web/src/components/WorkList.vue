@@ -42,7 +42,7 @@ function next(o: any) {
   )
     return "查看详情";
   if (o.blocked) return "查看阻塞";
-  if (o.flags?.invalidOwner) return "查看分工";
+  if (o.flags?.invalidOwner || o.flags?.invalidReviewer) return "查看分工";
   if (o.flags?.parentNotExecutable) return "查看需求条件";
   const scope = o.objectKind === "task" && o.kind !== "other" ? o.kind : o.role;
   const canClaim =
@@ -114,6 +114,8 @@ function destination(o: any) {
                 >{{ impactLabel(o) }}</ATag
               ><ATag v-if="o.flags?.invalidOwner && !o.flags?.inactiveOwner" color="orange"
                 >负责人岗位权限已变更</ATag
+              ><ATag v-if="o.flags?.invalidReviewer" color="orange"
+                >检查人岗位资格已失效</ATag
               ><span v-if="o.flags?.missingUpdate">未填今日更新</span>
             </div>
           </template>
@@ -160,6 +162,7 @@ function destination(o: any) {
           <ATag v-if="o.blocked" color="orange">阻塞</ATag
           ><ATag v-if="o.flags?.inactiveOwner" color="orange">负责人已停用</ATag
           ><ATag v-if="o.flags?.invalidOwner && !o.flags?.inactiveOwner" color="orange">负责人岗位权限已变更</ATag
+          ><ATag v-if="o.flags?.invalidReviewer" color="orange">检查人岗位资格已失效</ATag
           ><ATag v-if="o.revisionImpact" :title="o.revisionImpact.message" :color="o.revisionImpact.needsAttention ? 'orange' : o.revisionImpact.status === 'rechecked' ? 'success' : undefined">{{ impactLabel(o) }}</ATag
           ><span v-if="o.flags?.missingUpdate">未填今日更新</span>
         </div>

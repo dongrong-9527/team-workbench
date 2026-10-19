@@ -304,8 +304,14 @@ try {
     ? JSON.parse(localStorage.getItem(storageKey) ?? "null")
     : null;
 } catch {}
+const restoredValues = stored?.values ?? JSON.parse(JSON.stringify(props.spec.initial));
+// Disabled fields describe the current immutable context, including corrections.
+// Old drafts may retain values that were editable before the field was locked.
+for (const field of props.spec.fields)
+  if (field.disabled && Object.hasOwn(props.spec.initial, field.key))
+    restoredValues[field.key] = props.spec.initial[field.key];
 const values = ref<Record<string, any>>(
-    stored?.values ?? JSON.parse(JSON.stringify(props.spec.initial)),
+    restoredValues,
   ),
   version = ref<number | undefined>(stored?.version ?? props.version),
   busy = ref(false),
