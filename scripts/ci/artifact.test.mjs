@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 const sha = (value) => createHash('sha256').update(value).digest('hex');
-const source = '710c53e5549adbc1e4513003cfec3f4681e5e738';
+const source = '7cd6ea02859b90dace073e7de94f8a5783beef2c';
 // Removing a gate must allow the corresponding real tampered package through.
 // Load dynamically so the initial RED is an explicit missing-delivery-gate assertion.
 async function gates() {
