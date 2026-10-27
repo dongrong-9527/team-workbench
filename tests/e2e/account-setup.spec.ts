@@ -209,3 +209,27 @@ test("lost member creation response replays the same command without reconstruct
   const rows = (await api(page, "GET", "/api/members?limit=100")).items.filter((m: any) => m.displayName === "合成创建重试");
   expect(rows).toHaveLength(1);
 });
+
+test("administrator self-reset preserves the already-authorized one-time handoff after session revocation", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "clipboard", { value: { writeText: async (text: string) => { (window as any).__copiedInvitation = text; } } }));
+  await login(page, "admin");
+  await page.goto("/members");
+  const row = page.getByRole("row").filter({ hasText: "演示管理员" });
+  let writes = 0;
+  page.on("request", r => { if (r.method() === "POST" && new URL(r.url()).pathname === "/api/members/admin/reset") writes++; });
+  await row.getByRole("button", { name: "重置密码", exact: true }).click();
+  await page.getByRole("dialog", { name: "签发密码重置票据", exact: true }).getByRole("button", { name: "确认签发密码重置票据", exact: true }).click();
+  const expired = page.getByRole("dialog", { name: "登录会话已失效", exact: true });
+  await expect(expired).toBeVisible();
+  await expired.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.getByLabel("一次性票据", { exact: true })).toBeVisible();
+  const code = await page.getByLabel("一次性票据", { exact: true }).inputValue();
+  await page.getByRole("button", { name: "复制密码重置说明", exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__copiedInvitation)).toContain("密码重置码：" + code);
+  expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(code);
+  expect(writes).toBe(1);
+  // Issuance revokes sessions, not the old password. A fresh login discards the handoff.
+  await login(page, "admin");
+  await page.goto("/members");
+  await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+});

@@ -353,7 +353,9 @@ async function saved(r: any) {
       role="status"
       show-icon
     />
-    <TicketInvitation v-if="ticket && state.member?.isAdmin && !state.expired" :key="ticket.code" :invitation="ticket" @hide="ticket = undefined" />
+    <!-- Self-reset revokes the session before refresh. Preserve its already-authorized
+         one-time handoff until hide/navigation, without permitting another issuance. -->
+    <TicketInvitation v-if="ticket && state.member?.isAdmin" :key="ticket.code" :invitation="ticket" @hide="ticket = undefined" />
     <div
       class="member-layout"
       :class="{ 'with-project': roleContext && project }"
