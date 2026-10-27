@@ -2,11 +2,13 @@
 import AButton from "ant-design-vue/es/button";
 import AInput from "ant-design-vue/es/input";
 import AForm from "ant-design-vue/es/form";
+import type { FormInstance } from "ant-design-vue";
 import AAlert from "ant-design-vue/es/alert";
 import { BuildOutlined, ArrowRightOutlined } from "@ant-design/icons-vue";
-import { ref, computed } from "vue";
-import { useRoute } from "vue-router";
-import { request } from "../api/client";
+import { ref, computed, watch } from "vue";
+import { useRoute, onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
+import { request, ApiError } from "../api/client";
+import { accountCodeError, accountPasswordError, accountSetupFailure } from "../accountSetup";
 const route = useRoute(),
   reset = computed(() => route.path === "/reset"),
   token = ref(""),
@@ -15,12 +17,31 @@ const route = useRoute(),
   error = ref(""),
   success = ref(false),
   busy = ref(false);
+const form = ref<FormInstance>();
+const codeLabel = computed(() => reset.value ? "密码重置码" : "激活码");
+const codeHelp = computed(() => `请粘贴管理员提供的 43 位${codeLabel.value}，不是登录账号。仅含英文字母、数字、下划线或短横线。`);
+const passwordHelp = "密码须为 12–128 个 Unicode 字符；空格会原样保留，请勿在两端误加空格。";
+const codeRules = computed(() => [{ validator: async () => {
+  const message = accountCodeError(token.value, codeLabel.value);
+  if (message) throw new Error(message);
+} }]);
+const passwordRules = [{ validator: async () => {
+  const message = accountPasswordError(password.value);
+  if (message) throw new Error(message);
+} }];
+const confirmRules = [{ validator: async () => {
+  if (!confirm.value) throw new Error("请再次输入新密码");
+  if (password.value !== confirm.value) throw new Error("两次密码不一致，请重新确认。");
+} }];
+watch(reset, () => {
+  token.value = password.value = confirm.value = error.value = "";
+  success.value = false;
+  form.value?.clearValidate();
+});
+onBeforeRouteUpdate(() => !busy.value);
+onBeforeRouteLeave(() => !busy.value);
 async function submit() {
   if (busy.value) return;
-  if (password.value !== confirm.value) {
-    error.value = "两次密码不一致";
-    return;
-  }
   busy.value = true;
   error.value = "";
   try {
@@ -36,7 +57,7 @@ async function submit() {
     confirm.value = "";
     success.value = true;
   } catch (e) {
-    error.value = (e as Error).message;
+    error.value = accountSetupFailure(e instanceof ApiError ? e.code : 500, codeLabel.value);
   } finally {
     busy.value = false;
   }
@@ -71,54 +92,52 @@ async function submit() {
       <div class="auth-form">
         <h2>{{ reset ? "重置密码" : "激活账号" }}</h2>
         <p class="auth-subtitle">
-          使用管理员交给你的有效票据，由本人设置密码。
+          使用管理员提供的{{ codeLabel }}，由本人设置新密码。激活码与密码重置码不能互用，有效期为签发后 24 小时。
         </p>
         <p v-if="success" class="success" role="status">
           设置成功，请返回登录。所有旧会话已撤销。
         </p>
         <AForm
           v-else
+          ref="form"
           :model="{ token, password, confirm }"
           layout="vertical"
           :required-mark="false"
           @finish="submit"
         >
           <AForm.Item
-            label="管理员票据"
+            :label="codeLabel"
             name="token"
-            :rules="[
-              { required: true, message: '请填写管理员票据' },
-              { max: 43, message: '最多 43 个字符' },
-            ]"
+            :extra="codeHelp"
+            :rules="codeRules"
             ><AInput
               v-model:value="token"
               autocomplete="off"
-              :maxlength="43"
-              placeholder="输入管理员票据"
+              :spellcheck="false"
+              autocapitalize="off"
+              :placeholder="'粘贴 43 位' + codeLabel"
               :disabled="busy"
           /></AForm.Item>
           <AForm.Item
             label="新密码"
             name="password"
-            :rules="[
-              { required: true, message: '请填写新密码' },
-              { min: 12, message: '至少 12 个字符' },
-            ]"
+            :extra="passwordHelp"
+            :rules="passwordRules"
             ><AInput.Password
               v-model:value="password"
+              :visibility-toggle="false"
               autocomplete="new-password"
-              placeholder="至少 12 个字符"
+              placeholder="12–128 个 Unicode 字符"
               :disabled="busy"
           /></AForm.Item>
           <AForm.Item
             label="确认密码"
             name="confirm"
-            :rules="[
-              { required: true, message: '请填写确认密码' },
-              { min: 12, message: '至少 12 个字符' },
-            ]"
+            :dependencies="['password']"
+            :rules="confirmRules"
             ><AInput.Password
               v-model:value="confirm"
+              :visibility-toggle="false"
               autocomplete="new-password"
               placeholder="再次输入新密码"
               :disabled="busy"
@@ -142,6 +161,7 @@ async function submit() {
         </AForm>
         <div class="auth-links">
           <RouterLink to="/login">返回登录</RouterLink>
+          <RouterLink :to="reset ? '/activate' : '/reset'">{{ reset ? '前往激活账号' : '前往重置密码' }}</RouterLink>
         </div>
       </div>
     </section>

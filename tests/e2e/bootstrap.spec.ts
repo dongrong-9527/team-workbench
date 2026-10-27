@@ -52,7 +52,7 @@ test('bootstrap member activation and explicit project grants use visible forms'
   const member = await other.newPage();
   try {
     await member.goto('/activate');
-    await member.getByLabel('管理员票据',{exact:true}).fill(token);
+    await member.getByLabel('激活码',{exact:true}).fill(token);
     await member.getByLabel('新密码',{exact:true}).fill('Synthetic-demo-2026!');
     await member.getByLabel('确认密码',{exact:true}).fill('Synthetic-demo-2026!');
     await member.getByRole('button',{name:'激活账号',exact:true}).click();

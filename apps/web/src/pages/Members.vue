@@ -19,6 +19,8 @@ import { field, type FormSpec } from "../forms";
 import { useReadScope } from "../composables/readScope";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
+import TicketInvitation from "../components/TicketInvitation.vue";
+import type { AccountInvitation } from "../accountSetup";
 const route = useRoute(),
   router = useRouter();
 function projectFromQuery(value: unknown): string {
@@ -82,9 +84,10 @@ const members = ref<any[]>([]),
   form = ref<FormSpec>(),
   version = ref<number>(),
   formKey = ref(""),
-  ticket = ref(""),
-  ticketKind = ref(""),
+  ticket = ref<AccountInvitation>(),
   notice = ref("");
+// These values are safe form context, never a directory login lookup.
+let submittedLogin = "", ticketRecipient = { memberId: "", displayName: "" };
 const project = computed(() =>
   state.projects.find((p) => p.id === projectId.value),
 );
@@ -169,6 +172,7 @@ watch(
   (id) => {
     projectId.value = projectFromQuery(id);
     form.value = undefined;
+    ticket.value = undefined;
   },
 );
 function selectProject(id: unknown) {
@@ -194,7 +198,9 @@ function open(a: string, m?: any) {
     (!project.value || project.value.archived || !state.member?.isAdmin)
   )
     return;
-  ticket.value = "";
+  ticket.value = undefined;
+  submittedLogin = "";
+  ticketRecipient = { memberId: m?.id ?? "", displayName: m?.displayName ?? "" };
   formKey.value = a + ":" + (m?.id ?? "new") + ":" + projectId.value;
   version.value =
     a === "create"
@@ -215,7 +221,7 @@ function open(a: string, m?: any) {
     )[a],
     description: m
       ? `成员 ${m.displayName} · ${project.value?.name ?? ""}`
-      : "创建后由成员本人使用票据激活账号",
+      : "创建后复制激活邀请，通过可信渠道交给成员本人设置密码",
     impact:
       a === "deactivate"
         ? "停用会立即撤销会话并阻止继续写入；未完成事项保留原责任归属并显示停用提示。"
@@ -257,21 +263,31 @@ function open(a: string, m?: any) {
                 }),
               ]
             : [],
-    body: (v) =>
-      a === "create"
+    body: (v) => {
+      if (a === "create") {
+        submittedLogin = String(v.login);
+        ticketRecipient = { memberId: "", displayName: String(v.displayName) };
+      }
+      return a === "create"
         ? { login: v.login, displayName: v.displayName }
         : a === "rename"
           ? { displayName: v.displayName }
           : a === "roles"
             ? { memberId: m.id, roles: v.roles, leads: v.leads }
-            : {},
+            : {};
+    },
   };
 }
 async function saved(r: any) {
   directoryReady.value = false;
   form.value = undefined;
-  ticket.value = r.activationToken ?? r.resetToken ?? "";
-  ticketKind.value = r.activationToken ? "activate" : "reset";
+  const code = r.activationToken ?? r.resetToken;
+  ticket.value = code ? {
+    ...ticketRecipient, memberId: r.id ?? ticketRecipient.memberId,
+    code, kind: r.activationToken ? "activate" : "reset",
+    ...(r.activationToken && submittedLogin ? { login: submittedLogin } : {}),
+  } : undefined;
+  submittedLogin = "";
   notice.value =
     r.ticketIssued && !ticket.value
       ? "票据已签发；重复请求只返回安全元数据。若原票据丢失，请刷新成员版本后重新签发。"
@@ -337,21 +353,7 @@ async function saved(r: any) {
       role="status"
       show-icon
     />
-    <section v-if="ticket" class="panel panel-body">
-      <h2>
-        {{ ticketKind === "activate" ? "激活" : "重置" }}票据 · 仅本次显示
-      </h2>
-      <p>
-        通过可信渠道交给本人；请勿用于截图或公开文档。票据不会存储到本地草稿。
-      </p>
-      <label
-        >一次性票据<AInput :value="ticket" readonly autocomplete="off" /></label
-      ><RouterLink :to="ticketKind === 'activate' ? '/activate' : '/reset'"
-        >打开本人{{
-          ticketKind === "activate" ? "激活" : "重置"
-        }}表单</RouterLink
-      ><AButton @click="ticket = ''">隐藏票据</AButton>
-    </section>
+    <TicketInvitation v-if="ticket && state.member?.isAdmin && !state.expired" :key="ticket.code" :invitation="ticket" @hide="ticket = undefined" />
     <div
       class="member-layout"
       :class="{ 'with-project': roleContext && project }"

@@ -228,13 +228,11 @@ test("Ant auth and definition rules block short passwords and missing custom fie
   page,
 }) => {
   await page.goto("/activate");
-  await page.getByLabel("管理员票据", { exact: true }).fill("a".repeat(43));
+  await page.getByLabel("激活码", { exact: true }).fill("a".repeat(43));
   await page.getByLabel("新密码", { exact: true }).fill("short");
   await page.getByLabel("确认密码", { exact: true }).fill("short");
   await page.getByRole("button", { name: "激活账号", exact: true }).click();
-  await expect(page.getByText("至少 12 个字符", { exact: true })).toHaveCount(
-    2,
-  );
+  await expect(page.locator(".ant-form-item-explain-error").first()).toContainText("12–128");
   await login(page, "product");
   await page.goto("/projects/p1");
   await page.getByRole("button", { name: "新建需求", exact: true }).click();
@@ -739,7 +737,7 @@ for (const path of ["/activate", "/reset"]) {
       await route.continue();
     });
     await page.goto(path + "?ticket=synthetic-route-only");
-    await expect(page.getByLabel("管理员票据")).toBeVisible();
+    await expect(page.getByLabel(path === "/activate" ? "激活码" : "密码重置码", { exact: true })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe(path);
     expect(new URL(page.url()).searchParams.get("ticket")).toBe("synthetic-route-only");
   });

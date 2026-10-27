@@ -130,7 +130,7 @@ test("task_10 admin creation activation password reset and deactivation use actu
   await observeContext(context);
   const p = await context.newPage();
   await p.goto("/activate");
-  await p.getByLabel("管理员票据").fill(activation);
+  await p.getByLabel("激活码", { exact: true }).fill(activation);
   await p.getByLabel("新密码", { exact: true }).fill("Synthetic-demo-2026!");
   await p.getByLabel("确认密码").fill("Synthetic-demo-2026!");
   await p.getByRole("button", { name: "激活账号", exact: true }).click();
@@ -192,7 +192,7 @@ test("task_10 admin creation activation password reset and deactivation use actu
   );
   const reset = await page.getByLabel("一次性票据").inputValue();
   await p.goto("/reset");
-  await p.getByLabel("管理员票据").fill(reset);
+  await p.getByLabel("密码重置码", { exact: true }).fill(reset);
   await p.getByLabel("新密码", { exact: true }).fill("Synthetic-demo-2026!");
   await p.getByLabel("确认密码").fill("Synthetic-demo-2026!");
   await p.getByRole("button", { name: "确认重置" }).click();
