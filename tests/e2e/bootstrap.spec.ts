@@ -44,9 +44,10 @@ test('bootstrap member activation and explicit project grants use visible forms'
   await action(page,'创建成员');
   await page.getByLabel('登录账号（小写英文或数字）',{exact:true}).fill('firstdev');
   await page.getByLabel('显示名',{exact:true}).fill('初次开发成员');
-  await submit(page,'确认创建成员');
+  await page.getByRole('dialog',{name:'创建成员',exact:true}).getByRole('button',{name:'确认创建成员',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'激活码 · 仅本次显示',exact:true})).toBeVisible();
   const token = await page.getByLabel('一次性票据',{exact:true}).inputValue();
-  await page.getByRole('button',{name:'隐藏票据',exact:true}).click();
+  await page.getByRole('button',{name:'关闭查看',exact:true}).click();
   const other = await browser.newContext({baseURL:'https://127.0.0.1:4175',ignoreHTTPSErrors:true});
   await observeContext(other);
   const member = await other.newPage();

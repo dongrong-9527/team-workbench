@@ -136,6 +136,7 @@ test("reset pending state blocks dismissal and unknown-result retry keeps its or
   await expect(page.getByText("票据已签发；重复请求只返回安全元数据。", { exact: false })).toBeVisible();
   await expect(page.getByLabel("一次性票据")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "复制密码重置说明", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "密码重置码 · 仅本次显示", exact: true })).toHaveCount(0);
   const history = await api(page, "GET", `/api/audit/member/${member.id}?limit=100&afterSeq=0`);
   expect(history.items.filter((e: any) => e.action === "reset")).toHaveLength(1);
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toMatch(/resetToken|activationToken|csrfToken|newPassword/);

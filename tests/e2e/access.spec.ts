@@ -124,7 +124,8 @@ test("task_10 admin creation activation password reset and deactivation use actu
   await action(page, "创建成员");
   await page.getByLabel("登录账号（小写英文或数字）").fill("synthetic.new");
   await page.getByLabel("显示名", { exact: true }).fill("合成新成员");
-  await submit(page, "确认创建成员");
+  await page.getByRole("dialog", { name: "创建成员", exact: true }).getByRole("button", { name: "确认创建成员", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "激活码 · 仅本次显示", exact: true })).toBeVisible();
   const activation = await page.getByLabel("一次性票据").inputValue();
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   await observeContext(context);
@@ -175,7 +176,7 @@ test("task_10 admin creation activation password reset and deactivation use actu
     await previousRow!.dispose();
     return member;
   }
-  await page.getByRole("button", { name: "隐藏票据" }).click();
+  await page.getByRole("button", { name: "关闭查看", exact: true }).click();
   const activatedMember = await refreshMember();
   await row.getByRole("button", { name: "重置密码" }).click();
   const resetting = page.waitForResponse(
@@ -184,7 +185,8 @@ test("task_10 admin creation activation password reset and deactivation use actu
         `/api/members/${activatedMember.id}/reset` &&
       r.request().method() === "POST",
   );
-  await submit(page, "确认签发密码重置票据");
+  await page.getByRole("dialog", { name: "签发密码重置票据", exact: true }).getByRole("button", { name: "确认签发密码重置票据", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "密码重置码 · 仅本次显示", exact: true })).toBeVisible();
   const resetResponse = await resetting;
   expect(resetResponse.status()).toBe(200);
   expect(resetResponse.request().postDataJSON().expectedVersion).toBe(
@@ -198,7 +200,7 @@ test("task_10 admin creation activation password reset and deactivation use actu
   await p.getByRole("button", { name: "确认重置" }).click();
   await expect(p.getByRole("status")).toContainText("设置成功");
   await login(p, "synthetic.new");
-  await page.getByRole("button", { name: "隐藏票据" }).click();
+  await page.getByRole("button", { name: "关闭查看", exact: true }).click();
   const resetMember = await refreshMember();
   await row.getByRole("button", { name: "停用", exact: true }).click();
   const deactivating = page.waitForResponse(

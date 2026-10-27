@@ -144,7 +144,7 @@ test("create invitation copies submitted login, one-time code and fixed entry wi
   expect(new URL((await page.getByRole("link", { name: "打开本人激活表单", exact: true }).getAttribute("href"))!, page.url()).search).toBe("");
   expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(code);
   await page.screenshot({ path: info.outputPath("synthetic-invitation-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: "隐藏票据", exact: true }).click();
+  await page.getByRole("button", { name: "关闭查看", exact: true }).click();
   await expect(page.getByRole("button", { name: "复制激活邀请", exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.getByLabel("一次性票据")).toHaveCount(0);
@@ -177,7 +177,7 @@ test("reset copy rejection offers selectable instructions without guessing login
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("synthetic-reset-manual-mobile.png"), fullPage: true });
-  await page.getByRole("button", { name: "隐藏票据", exact: true }).click();
+  await page.getByRole("button", { name: "关闭查看", exact: true }).click();
   await expect(manual).toHaveCount(0);
 });
 
@@ -205,6 +205,7 @@ test("lost member creation response replays the same command without reconstruct
   expect(keys[1]).toBe(keys[0]);
   await expect(page.getByRole("button", { name: "复制激活邀请", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "激活码 · 仅本次显示", exact: true })).toHaveCount(0);
   await expect(page.getByText("票据已签发；重复请求只返回安全元数据。", { exact: false })).toBeVisible();
   const rows = (await api(page, "GET", "/api/members?limit=100")).items.filter((m: any) => m.displayName === "合成创建重试");
   expect(rows).toHaveLength(1);
