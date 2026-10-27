@@ -11,7 +11,7 @@ import ATable from "ant-design-vue/es/table";
 import ATag from "ant-design-vue/es/tag";
 import AButton from "ant-design-vue/es/button";
 import AAlert from "ant-design-vue/es/alert";
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { state, zh, type Member, type Project } from "../state";
 import { allPages, request, type Page } from "../api/client";
@@ -29,6 +29,7 @@ function projectFromQuery(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 const auditMember = ref("");
+const pageHeading = ref<HTMLElement>();
 const search = ref("");
 const roleContext = computed(
   () =>
@@ -294,6 +295,13 @@ async function saved(r: any) {
       : "操作已完成";
   await refreshPermissions();
 }
+async function closeTicket() {
+  ticket.value = undefined;
+  await nextTick();
+  // The confirmation is gone and refresh can replace its member-row trigger.
+  // Use the stable page context, including after self-reset revokes the session.
+  pageHeading.value?.focus();
+}
 </script>
 <template>
   <div class="members-page">
@@ -302,7 +310,7 @@ async function saved(r: any) {
         <span class="eyebrow">{{
           roleContext && project ? "PROJECT / " + project.id : "TEAM MEMBERS"
         }}</span>
-        <h1>{{ roleContext && project ? "项目设置" : "成员管理" }}</h1>
+        <h1 ref="pageHeading" tabindex="-1">{{ roleContext && project ? "项目设置" : "成员管理" }}</h1>
         <p>
           {{
             roleContext && project
@@ -355,7 +363,7 @@ async function saved(r: any) {
     />
     <!-- Self-reset revokes the session before refresh. Preserve its already-authorized
          one-time handoff until hide/navigation, without permitting another issuance. -->
-    <TicketInvitation v-if="ticket && state.member?.isAdmin" :key="ticket.code" :invitation="ticket" @hide="ticket = undefined" />
+    <TicketInvitation v-if="ticket && state.member?.isAdmin" :key="ticket.code" :invitation="ticket" @hide="closeTicket" />
     <div
       class="member-layout"
       :class="{ 'with-project': roleContext && project }"

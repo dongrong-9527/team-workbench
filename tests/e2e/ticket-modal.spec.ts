@@ -99,3 +99,33 @@ test("pending copy ignores duplicate clicks and closing cannot resurrect the cod
   expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(code);
   expect(writes).toBe(1);
 });
+
+test("keyboard close returns focus to the stable page heading after create, reset and self-reset", async ({ page }) => {
+  await login(page, "admin");
+  await page.goto("/members");
+  await page.getByRole("button", { name: "创建成员", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "创建成员", exact: true });
+  await create.getByLabel("登录账号（小写英文或数字）").fill("synthetic.modal.focus");
+  await create.getByLabel("显示名", { exact: true }).fill("合成弹框焦点");
+  await create.getByRole("button", { name: "确认创建成员", exact: true }).click();
+  for (const member of [null, "合成弹框焦点", "演示管理员"]) {
+    if (member) {
+      await page.getByRole("row").filter({ hasText: member }).getByRole("button", { name: "重置密码", exact: true }).click();
+      await page.getByRole("dialog", { name: "签发密码重置票据", exact: true }).getByRole("button", { name: "确认签发密码重置票据", exact: true }).click();
+    }
+    if (member === "演示管理员") {
+      const session = page.getByRole("dialog", { name: "登录会话已失效", exact: true });
+      await expect(session).toBeVisible();
+      await session.getByRole("button", { name: "取消", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(session).toBeHidden();
+    }
+    const delivery = page.getByRole("dialog", { name: member ? "密码重置码 · 仅本次显示" : "激活码 · 仅本次显示", exact: true });
+    await expect(delivery).toBeVisible();
+    await delivery.getByRole("button", { name: "关闭查看", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(delivery).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "成员管理", exact: true })).toBeFocused();
+    await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  }
+});
