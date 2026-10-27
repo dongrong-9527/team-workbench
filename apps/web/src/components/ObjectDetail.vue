@@ -939,8 +939,9 @@ function split() {
         :version="formVersion"
         @saved="saved"
         @cancel="
+          notice = form?.cancelLabel === '返回并保留草稿'
+            ? '普通草稿已保留，可重新打开继续填写。' : '已取消操作。';
           form = undefined;
-          notice = '普通草稿已保留，可重新打开继续填写。';
         "
       />
     </template>

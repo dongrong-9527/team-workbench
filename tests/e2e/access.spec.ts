@@ -243,7 +243,7 @@ test("task_10 revoked role hides actions after refresh and old open form is reje
   await submit(page, "确认调整项目授权");
   await p.getByRole("button", { name: "确认开始处理" }).click();
   await expect(p.getByRole("dialog").getByRole("alert")).toContainText("权限");
-  await p.getByRole("button", { name: "返回并保留草稿" }).click();
+  await p.getByRole("button", { name: "取消", exact: true }).click();
   await p.reload();
   await expect(
     p.getByRole("button", { name: "开始处理", exact: true }),

@@ -555,7 +555,7 @@ test("member multiple roles preserve exact arrays and cancellation preserves the
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("前端", { exact: true }).first().check();
   await dialog.getByLabel("测试", { exact: true }).first().check();
-  await dialog.getByRole("button", { name: "返回并保留草稿" }).click();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await page
     .getByRole("row")
     .filter({ hasText: "顾查看" })

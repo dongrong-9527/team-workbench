@@ -17,6 +17,7 @@ import AModal from "ant-design-vue/es/modal";
 import AAlert from "ant-design-vue/es/alert";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import type { FormSpec, Field } from "../forms";
+import { formCancelPresentation } from "../forms";
 import {
   BUSINESS_BODY_LIMIT,
   CHECK_ENTRY_LIMIT,
@@ -34,6 +35,7 @@ const props = defineProps<{
   sensitive?: boolean;
 }>();
 const emit = defineEmits<{ saved: [result: any]; cancel: [] }>();
+const cancelPresentation = computed(() => formCancelPresentation(props.spec, props.sensitive));
 const bugOptions = ref(props.spec.fields.find((field) => field.key === "bugId")?.options ?? []),
   bugOptionsBusy = ref(false),
   bugOptionsError = ref("");
@@ -304,7 +306,8 @@ try {
     ? JSON.parse(localStorage.getItem(storageKey) ?? "null")
     : null;
 } catch {}
-const restoredValues = stored?.values ?? JSON.parse(JSON.stringify(props.spec.initial));
+const storedCommand = stored?.fingerprint && stored?.key ? stored : undefined;
+const restoredValues = (cancelPresentation.value.showDraftHints ? stored?.values : undefined) ?? JSON.parse(JSON.stringify(props.spec.initial));
 // Disabled fields describe the current immutable context, including corrections.
 // Old drafts may retain values that were editable before the field was locked.
 for (const field of props.spec.fields)
@@ -313,7 +316,7 @@ for (const field of props.spec.fields)
 const values = ref<Record<string, any>>(
     restoredValues,
   ),
-  version = ref<number | undefined>(stored?.version ?? props.version),
+  version = ref<number | undefined>((cancelPresentation.value.showDraftHints ? stored?.version : storedCommand?.version) ?? props.version),
   busy = ref(false),
   error = ref(""),
   conflict = ref<Record<string, unknown>>(),
@@ -329,19 +332,25 @@ const acceptancePassBlocked = computed(
     serverGateOk.value !== true,
 );
 let active = true;
-let fingerprint = stored?.fingerprint ?? "",
-  key = stored?.key ?? "";
+let fingerprint = storedCommand?.fingerprint ?? "",
+  key = storedCommand?.key ?? "";
 function persist() {
-  if (!props.sensitive)
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        values: values.value,
-        version: version.value,
-        fingerprint,
-        key,
-      }),
-    );
+  if (props.sensitive) return;
+  // Confirmations have no editable draft. Keep only an attempted command's
+  // retry binding, so an unknown result cannot cause a second ticket issuance.
+  if (!cancelPresentation.value.showDraftHints && (!fingerprint || !key)) {
+    localStorage.removeItem(storageKey);
+    return;
+  }
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      ...(cancelPresentation.value.showDraftHints ? { values: values.value } : {}),
+      version: version.value,
+      fingerprint,
+      key,
+    }),
+  );
 }
 watch(values, persist, { deep: true });
 async function submit() {
@@ -639,7 +648,7 @@ onUnmounted(() => {
               show-icon
             />
             <p
-              v-if="stored && !sensitive"
+              v-if="stored?.values && cancelPresentation.showDraftHints"
               class="mutation-draft-note"
               role="status"
             >
@@ -990,7 +999,7 @@ onUnmounted(() => {
           </div>
           <div class="form-actions mutation-footer">
             <AButton class="mutation-cancel" :disabled="busy" @click="cancel">{{
-              sensitive ? "取消" : "返回并保留草稿"
+              cancelPresentation.label
             }}</AButton>
             <AButton
               class="mutation-submit"
@@ -1009,7 +1018,7 @@ onUnmounted(() => {
                 busy ? "正在提交…" : (spec.submit ?? `确认${spec.title}`)
               }}</AButton
             >
-            <span v-if="!sensitive" class="muted mutation-draft-caption"
+            <span v-if="cancelPresentation.showDraftHints" class="muted mutation-draft-caption"
               >仅保存本账号普通工作草稿</span
             >
           </div>
