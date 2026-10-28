@@ -527,14 +527,14 @@ function staleAcceptance(current: Record<string, unknown>) {
     "验收对象已变更，填写内容已保留。请核对并采用最新版本后重新检查验收条件。";
 }
 async function cancel() {
-  if (busy.value || otherPending.value || returnConfirmation.value) return;
+  if (busy.value || returnConfirmation.value) return;
   if (state.member?.id !== actor) { emit("cancel"); return; }
   if (!persist()) { storageLeaveOpen.value = true; return; }
   if (requirementEditor.enabled.value && !await requirementEditor.allowClose()) return;
   emit("cancel");
 }
 function leaveWithoutDraft() {
-  if (busy.value || otherPending.value) return;
+  if (busy.value) return;
   storageLeaveOpen.value = false;
   emit("cancel");
 }
