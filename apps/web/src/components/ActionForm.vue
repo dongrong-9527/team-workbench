@@ -355,6 +355,7 @@ let active = true;
 let fingerprint = storedCommand?.fingerprint ?? "",
   key = storedCommand?.key ?? "";
 const draftPersisted = ref(true), localDraftNotice = ref(""), storageLeaveOpen = ref(false);
+let storageNavigationResolve: ((leave: boolean) => void) | undefined;
 const creationUncertain = ref(!!creationKind.value && !props.spec.requirementEditor && stored?.creationUncertain === true);
 const requirementEditor = useRequirementEditor({
   spec:()=>props.spec,actor,stored,storageKey,values,busy,error,command:()=>({fingerprint,key}),persist,
@@ -533,14 +534,28 @@ async function cancel() {
   if (requirementEditor.enabled.value && !await requirementEditor.allowClose()) return;
   emit("cancel");
 }
+function continueEditing() {
+  storageLeaveOpen.value = false;
+  storageNavigationResolve?.(false);
+  storageNavigationResolve = undefined;
+}
 function leaveWithoutDraft() {
   if (busy.value) return;
   storageLeaveOpen.value = false;
-  emit("cancel");
+  if (storageNavigationResolve) {
+    storageNavigationResolve(true);
+    storageNavigationResolve = undefined;
+  } else emit("cancel");
 }
 async function guardNavigation() {
-  if (busy.value || otherPending.value) return false;
-  if (state.member?.id === actor && !persist()) return false;
+  if (busy.value || otherPending.value || storageLeaveOpen.value) return false;
+  if (state.member?.id === actor && !persist()) {
+    // Keep the original navigation pending, including relogin. Only an explicit
+    // discard may continue it; Escape/continue must retain this page's input.
+    storageLeaveOpen.value = true;
+    const leave = await new Promise<boolean>((resolve) => { storageNavigationResolve = resolve; });
+    return leave && active && !busy.value && !otherPending.value;
+  }
   return requirementEditor.allowNavigation();
 }
 async function validationFailed(failure: {errorFields?:{name:(string|number)[]}[]}) {
@@ -566,7 +581,7 @@ function finishPopupKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
   if (storageLeaveOpen.value || requirementEditor.ui.clearOpen || requirementEditor.ui.discardOpen) {
     event.stopPropagation();
-    if (storageLeaveOpen.value) storageLeaveOpen.value = false;
+    if (storageLeaveOpen.value) continueEditing();
     else if (requirementEditor.ui.discardOpen) requirementEditor.discard(false);
     else requirementEditor.ui.clearOpen = false;
     return;
@@ -683,6 +698,7 @@ onMounted(async () => {
 });
 onUnmounted(() => {
   active = false;
+  continueEditing();
   document.removeEventListener("keydown", trapFormFocus);
   window.removeEventListener("beforeunload", protectUnpersistedInput);
   // Wait until the inline page/portal has left and its parent controls are
@@ -1339,9 +1355,9 @@ onUnmounted(() => {
       </div>
     </component>
   </Teleport>
-  <AModal :focus-trigger-after-close="false" :after-close="restoreConfirmationFocus" :open="storageLeaveOpen" title="本地暂存失败" :z-index="1300" :mask-closable="false" @cancel="storageLeaveOpen=false">
+  <AModal :focus-trigger-after-close="false" :after-close="restoreConfirmationFocus" :open="storageLeaveOpen" title="本地暂存失败" :z-index="1300" :mask-closable="false" @cancel="continueEditing">
     <p>未提交文字和待上传图片仅保留在本页，返回后可能丢失。已保存的服务器对象不会被删除，原有重试绑定不会被清除。</p>
-    <template #footer><AButton ref="storageContinue" @click="storageLeaveOpen=false">继续填写</AButton><AButton danger @click="leaveWithoutDraft">放弃本页内容并返回</AButton></template>
+    <template #footer><AButton ref="storageContinue" @click="continueEditing">继续填写</AButton><AButton danger @click="leaveWithoutDraft">放弃本页内容并返回</AButton></template>
   </AModal>
   <AModal :focus-trigger-after-close="false" :after-close="restoreConfirmationFocus" :z-index="1200" :open="requirementEditor.ui.clearOpen" title="清空未保存内容" :mask-closable="false" :keyboard="!busy" @cancel="requirementEditor.ui.clearOpen=false">
     <p>{{ spec.requirementEditor?.mode==='create'?'将恢复空白初始内容，并移除本次待上传图片。':'将放弃未保存修改，恢复本次打开时的内容，并移除本次待上传图片。' }}服务端对象和已保存附件不受影响。</p>

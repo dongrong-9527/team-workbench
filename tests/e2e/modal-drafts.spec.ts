@@ -254,6 +254,42 @@ test("failed local draft storage reports failure and return cannot silently lose
   ).toBeVisible();
 });
 
+for (const discard of [false, true]) {
+  test(`quota failure during expired-session relogin ${discard ? "resumes only after explicit discard" : "retains input on Escape and continue"}`, async ({ page }) => {
+    await login(page, "product");
+    await page.goto("/projects/p1");
+    await page.getByRole("button", { name: "新建任务", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "新建任务", exact: true });
+    let writes = 0;
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/api/tasks" && request.method() === "POST") writes++;
+    });
+    await page.evaluate(() => {
+      Storage.prototype.setItem = function () { throw new DOMException("Synthetic quota", "QuotaExceededError"); };
+    });
+    await editor.getByLabel("标题", { exact: true }).fill("合成尚未暂存的会话内容");
+    await page.evaluate(() => window.dispatchEvent(new Event("workbench:expired")));
+    await page.getByRole("dialog", { name: "登录会话已失效", exact: true })
+      .getByRole("button", { name: "重新登录", exact: true }).click();
+    const warning = page.getByRole("dialog", { name: "本地暂存失败", exact: true });
+    await expect(warning).toBeVisible();
+    if (discard) {
+      await warning.getByRole("button", { name: "放弃本页内容并返回", exact: true }).click();
+      await expect(page).toHaveURL(/\/login\?return=/);
+    } else {
+      await page.keyboard.press("Escape");
+      await expect(warning).not.toBeVisible();
+      await expect(editor.getByLabel("标题", { exact: true })).toHaveValue("合成尚未暂存的会话内容");
+      await expect(page).toHaveURL(/\/projects\/p1/);
+      await editor.getByRole("button", { name: "返回", exact: true }).click();
+      await warning.getByRole("button", { name: "继续填写", exact: true }).click();
+      await expect(editor).toBeVisible();
+      await expect(editor.getByLabel("标题", { exact: true })).toHaveValue("合成尚未暂存的会话内容");
+    }
+    expect(writes).toBe(0);
+  });
+}
+
 test("an ambiguous creation retains its valid command even if restored editable values are malformed", async ({
   page,
 }) => {
