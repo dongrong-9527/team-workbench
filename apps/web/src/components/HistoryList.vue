@@ -86,6 +86,15 @@ const names: Record<string, string> = {
   password: "修改密码",
 };
 const action = (a: string) => actionNames[a] ?? names[a] ?? a;
+function projectRoles(snapshot: Record<string, unknown> | null | undefined) {
+  if (!Array.isArray(snapshot?.roles)) return [];
+  return snapshot.roles.filter((r: any) => r && typeof r.role === "string") as {
+    memberId: string;
+    memberName?: string;
+    role: string;
+    lead: number;
+  }[];
+}
 const fields: Record<string, string> = {
   title: "标题",
   description: "说明",
@@ -142,6 +151,47 @@ const fields: Record<string, string> = {
                 }}
               </p></template
             >
+            <template v-if="kind === 'project'">
+              <p
+                v-if="
+                  e.before?.archived !== undefined ||
+                  e.after?.archived !== undefined
+                "
+              >
+                归档状态：{{
+                  e.before?.archived === undefined
+                    ? "—"
+                    : e.before.archived
+                      ? "已归档"
+                      : "进行中"
+                }}
+                →
+                {{
+                  e.after?.archived === undefined
+                    ? "—"
+                    : e.after.archived
+                      ? "已归档"
+                      : "进行中"
+                }}
+              </p>
+              <div
+                v-for="side in ['before', 'after'] as const"
+                :key="side"
+                class="project-role-snapshot"
+              >
+                <strong>{{
+                  side === "before" ? "变更前项目岗位" : "变更后项目岗位"
+                }}</strong>
+                <p
+                  v-for="r in projectRoles(e[side])"
+                  :key="r.memberId + ':' + r.role"
+                >
+                  {{ r.memberName ?? r.memberId }} · {{ zh(r.role)
+                  }}{{ r.lead ? "负责人" : "" }}
+                </p>
+                <p v-if="!projectRoles(e[side]).length">无项目岗位记录</p>
+              </div>
+            </template>
           </details>
         </li>
       </ul>

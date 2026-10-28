@@ -21,6 +21,8 @@ import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
 import TicketInvitation from "../components/TicketInvitation.vue";
 import type { AccountInvitation } from "../accountSetup";
+import ProjectHeader from "../components/ProjectHeader.vue";
+import ProjectSettingsNav from "../components/ProjectSettingsNav.vue";
 const route = useRoute(),
   router = useRouter();
 function projectFromQuery(value: unknown): string {
@@ -38,14 +40,6 @@ const roleContext = computed(
     state.projects.some((p) => p.id === route.query.projectId),
 );
 const roleNames = ["product", "frontend", "backend", "test"];
-const projectTabs = [
-  { key: "overview", label: "概览" },
-  { key: "requirements", label: "需求" },
-  { key: "tasks", label: "任务" },
-  { key: "bugs", label: "Bug" },
-  { key: "tests", label: "测试与验收" },
-  { key: "settings", label: "项目设置" },
-];
 const visibleMembers = computed(() =>
   members.value.filter(
     (m) =>
@@ -88,7 +82,8 @@ const members = ref<any[]>([]),
   ticket = ref<AccountInvitation>(),
   notice = ref("");
 // These values are safe form context, never a directory login lookup.
-let submittedLogin = "", ticketRecipient = { memberId: "", displayName: "" };
+let submittedLogin = "",
+  ticketRecipient = { memberId: "", displayName: "" };
 const project = computed(() =>
   state.projects.find((p) => p.id === projectId.value),
 );
@@ -201,7 +196,10 @@ function open(a: string, m?: any) {
     return;
   ticket.value = undefined;
   submittedLogin = "";
-  ticketRecipient = { memberId: m?.id ?? "", displayName: m?.displayName ?? "" };
+  ticketRecipient = {
+    memberId: m?.id ?? "",
+    displayName: m?.displayName ?? "",
+  };
   formKey.value = a + ":" + (m?.id ?? "new") + ":" + projectId.value;
   version.value =
     a === "create"
@@ -283,11 +281,17 @@ async function saved(r: any) {
   directoryReady.value = false;
   form.value = undefined;
   const code = r.activationToken ?? r.resetToken;
-  ticket.value = code ? {
-    ...ticketRecipient, memberId: r.id ?? ticketRecipient.memberId,
-    code, kind: r.activationToken ? "activate" : "reset",
-    ...(r.activationToken && submittedLogin ? { login: submittedLogin } : {}),
-  } : undefined;
+  ticket.value = code
+    ? {
+        ...ticketRecipient,
+        memberId: r.id ?? ticketRecipient.memberId,
+        code,
+        kind: r.activationToken ? "activate" : "reset",
+        ...(r.activationToken && submittedLogin
+          ? { login: submittedLogin }
+          : {}),
+      }
+    : undefined;
   submittedLogin = "";
   notice.value =
     r.ticketIssued && !ticket.value
@@ -305,12 +309,14 @@ async function closeTicket() {
 </script>
 <template>
   <div class="members-page">
-    <div class="page-heading">
+    <div v-if="!(roleContext && project)" class="page-heading">
       <div>
         <span class="eyebrow">{{
           roleContext && project ? "PROJECT / " + project.id : "TEAM MEMBERS"
         }}</span>
-        <h1 ref="pageHeading" tabindex="-1">{{ roleContext && project ? "项目设置" : "成员管理" }}</h1>
+        <h1 ref="pageHeading" tabindex="-1">
+          {{ roleContext && project ? "项目设置" : "成员管理" }}
+        </h1>
         <p>
           {{
             roleContext && project
@@ -328,22 +334,27 @@ async function closeTicket() {
         <UserAddOutlined aria-hidden="true" />创建成员
       </AButton>
     </div>
-    <nav
-      v-if="roleContext && project"
-      class="project-navigation"
-      aria-label="项目导航"
-    >
-      <RouterLink
-        v-for="t in projectTabs"
-        :key="t.key"
-        :to="{
-          path: '/projects/' + project.id,
-          query: t.key === 'overview' ? {} : { tab: t.key },
-        }"
-        :aria-current="t.key === 'settings' ? 'page' : undefined"
-        >{{ t.label }}</RouterLink
+    <template v-if="roleContext && project">
+      <ProjectHeader
+        :project-id="project.id"
+        :project="project"
+        active="settings"
       >
-    </nav>
+        <template #title
+          ><h1 ref="pageHeading" tabindex="-1">{{ project.name }}</h1></template
+        >
+        <template #actions
+          ><AButton
+            v-if="state.member?.isAdmin"
+            type="primary"
+            :disabled="!writesReady"
+            @click="open('create')"
+            ><UserAddOutlined aria-hidden="true" />创建成员</AButton
+          ></template
+        >
+      </ProjectHeader>
+      <ProjectSettingsNav :project-id="project.id" active="roles" />
+    </template>
     <AAlert v-if="directoryError || error" type="error" show-icon role="alert"
       ><template #message>
         {{ directoryError || error
@@ -363,25 +374,16 @@ async function closeTicket() {
     />
     <!-- Self-reset revokes the session before refresh. Preserve its already-authorized
          one-time handoff until hide/navigation, without permitting another issuance. -->
-    <TicketInvitation v-if="ticket && state.member?.isAdmin" :key="ticket.code" :invitation="ticket" @hide="closeTicket" />
+    <TicketInvitation
+      v-if="ticket && state.member?.isAdmin"
+      :key="ticket.code"
+      :invitation="ticket"
+      @hide="closeTicket"
+    />
     <div
       class="member-layout"
       :class="{ 'with-project': roleContext && project }"
     >
-      <nav
-        v-if="roleContext && project"
-        class="settings-menu"
-        aria-label="项目设置导航"
-      >
-        <RouterLink
-          :to="{ path: '/projects/' + project.id, query: { tab: 'settings' } }"
-          >基本信息</RouterLink
-        ><span aria-current="page">成员与角色</span
-        ><RouterLink
-          :to="'/projects/' + project.id + '?tab=settings#project-history'"
-          >归档与历史</RouterLink
-        >
-      </nav>
       <div class="member-content">
         <section class="permission-guide">
           <SafetyCertificateOutlined aria-hidden="true" />
@@ -508,13 +510,23 @@ async function closeTicket() {
                       · 全项目可读</span
                     >
                   </div>
-                  <div class="revision" :title="m.id" :aria-label="'账号标识 ' + m.id">账号标识：{{ m.id.slice(0, 8) }}</div></template
+                  <div
+                    class="revision"
+                    :title="m.id"
+                    :aria-label="'账号标识 ' + m.id"
+                  >
+                    账号标识：{{ m.id.slice(0, 8) }}
+                  </div></template
                 >
                 <template v-else-if="column.key === 'active'"
                   ><ATag :color="m.active ? 'success' : 'warning'">{{
                     m.active ? "有效" : "已停用"
                   }}</ATag>
-                  <ATag v-if="m.active" :color="m.activated ? 'success' : 'processing'">{{ m.activated ? '已激活' : '待激活' }}</ATag></template
+                  <ATag
+                    v-if="m.active"
+                    :color="m.activated ? 'success' : 'processing'"
+                    >{{ m.activated ? "已激活" : "待激活" }}</ATag
+                  ></template
                 >
                 <template v-else-if="column.key === 'roles'"
                   ><ATag v-for="r in m.roles"
@@ -935,5 +947,18 @@ async function closeTicket() {
     padding: 0 16px 12px;
     font-size: 12px;
   }
+}
+
+.member-layout.with-project {
+  display: block;
+}
+.member-content {
+  min-width: 0;
+}
+.members-page :deep(.project-header h1) {
+  font-size: 21px;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 </style>

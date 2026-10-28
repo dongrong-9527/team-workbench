@@ -73,6 +73,8 @@ test("mobile drawer traps focus, closes on Escape and restores its trigger", asy
   await trigger.click();
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
+  const close = drawer.getByRole("button", { name: "收起导航" });
+  await expect(close).toBeFocused();
   await expect(
     drawer.locator(
       "xpath=ancestor::div[contains(@class, 'ant-drawer-content')][1]",
@@ -83,9 +85,15 @@ test("mobile drawer traps focus, closes on Escape and restores its trigger", asy
   await expect(drawer.getByRole("link", { name: "账号设置" })).toBeFocused();
   await drawer.getByRole("button", { name: "退出登录" }).focus();
   await page.keyboard.press("Tab");
-  await expect(drawer.getByRole("button", { name: "收起导航" })).toBeFocused();
+  const search = drawer.getByRole("textbox", { name: "筛选移动项目" });
+  await expect(search).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(drawer.getByRole("button", { name: "退出登录" })).toBeFocused();
+  await close.focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(drawer.getByRole("navigation", { name: "移动项目入口" }).getByRole("link").last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(close).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();
   await expect(trigger).toBeFocused();

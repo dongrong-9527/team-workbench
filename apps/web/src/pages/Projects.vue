@@ -5,7 +5,6 @@ import {
   FolderOpenOutlined,
   PlusOutlined,
   ArrowUpOutlined,
-  SettingOutlined,
 } from "@ant-design/icons-vue";
 import ASelect from "ant-design-vue/es/select";
 import ATag from "ant-design-vue/es/tag";
@@ -20,6 +19,10 @@ import { useReadScope } from "../composables/readScope";
 import WorkList from "../components/WorkList.vue";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
+import ProjectHeader from "../components/ProjectHeader.vue";
+import ProjectSettingsNav from "../components/ProjectSettingsNav.vue";
+import ProjectRelatedWork from "../components/ProjectRelatedWork.vue";
+import { projectTabs } from "../projectNavigation";
 const route = useRoute(),
   router = useRouter(),
   overview = ref<any>(),
@@ -31,7 +34,8 @@ const route = useRoute(),
   status = ref(""),
   owner = ref(""),
   blocked = ref(""),
-  archive = ref("active"),
+  archive = ref("all"),
+  archivedExpanded = ref(false),
   form = ref<FormSpec>(),
   version = ref<number>(),
   formKey = ref(""),
@@ -60,14 +64,7 @@ watch(
   },
   { immediate: true },
 );
-const tabs = [
-  { key: "overview", label: "概览" },
-  { key: "requirements", label: "需求" },
-  { key: "tasks", label: "任务" },
-  { key: "bugs", label: "Bug" },
-  { key: "tests", label: "测试与验收" },
-  { key: "settings", label: "项目设置" },
-];
+const tabs = projectTabs;
 const tab = computed(() =>
   tabs.some((t) => t.key === route.query.tab)
     ? String(route.query.tab)
@@ -102,10 +99,17 @@ const requestStatus = computed(() =>
 const projectMembers = computed(() =>
   (state.projectMembers[projectId.value] ?? []).filter((m) => m.active),
 );
-const missingRoles = computed(() => ["product", "frontend", "backend", "test"].filter(
-  (role) => !projectMembers.value.some((member) => member.roles?.some((entry) => entry.role === role)),
-));
-const missingRoleText = computed(() => missingRoles.value.map((role) => zh(role)).join("、"));
+const missingRoles = computed(() =>
+  ["product", "frontend", "backend", "test"].filter(
+    (role) =>
+      !projectMembers.value.some((member) =>
+        member.roles?.some((entry) => entry.role === role),
+      ),
+  ),
+);
+const missingRoleText = computed(() =>
+  missingRoles.value.map((role) => zh(role)).join("、"),
+);
 const listTitle = computed(() =>
   route.query.q
     ? "搜索“" + route.query.q + "”"
@@ -129,9 +133,15 @@ function tabLocation(key: string, extra: Record<string, string> = {}) {
     },
   };
 }
-function navigateTab(key: string, extra: Record<string, string> = {}) {
+function navigateTab(
+  key: string,
+  extra: Record<string, string> = {},
+  clearSearch = false,
+) {
   kind.value = status.value = owner.value = blocked.value = "";
-  router.push(tabLocation(key, extra));
+  const destination = tabLocation(key, extra);
+  if (clearSearch) delete destination.query.q;
+  router.push(destination);
 }
 function count(kind: string, states?: string[]) {
   return (overview.value?.counts ?? [])
@@ -157,11 +167,37 @@ const projects = computed(() =>
       (archive.value === "all" ||
         (archive.value === "archived" ? p.archived : !p.archived)) &&
       (!projectSearch.value ||
-        (p.name + " " + p.description)
+        (p.name + " " + p.id + " " + p.description)
           .toLowerCase()
           .includes(projectSearch.value.toLowerCase())),
   ),
 );
+const projectGroups = computed(() => [
+  {
+    key: "active",
+    label: "进行中",
+    items: projects.value.filter((p) => !p.archived),
+    show: archive.value !== "archived",
+    expanded: true,
+  },
+  {
+    key: "archived",
+    label: "已归档",
+    items: projects.value.filter((p) => p.archived),
+    show: archive.value !== "active",
+    expanded: archive.value === "archived" || archivedExpanded.value,
+  },
+]);
+const settingsSection = computed(() =>
+  route.query.section === "history" || route.hash === "#project-history"
+    ? "history"
+    : "basic",
+);
+function clearProjectFilters() {
+  projectSearch.value = "";
+  archive.value = "all";
+  archivedExpanded.value = false;
+}
 const reads = useReadScope(() =>
   JSON.stringify([
     projectId.value,
@@ -232,24 +268,48 @@ function create(kind: string) {
   version.value = undefined;
   formKey.value = "create:" + kind + ":" + projectId.value;
 }
-watch(() => [overview.value?.project.id, route.query.create, route.query.requirementId, route.query.taskId, route.query.role], () => {
-  if (route.query.create !== "bug" || !overview.value || form.value) return;
-  if (!canCreateBug.value || overview.value.project.archived) {
-    notice.value = "当前项目没有登记 Bug 的权限，或项目已归档。";
-    return;
-  }
-  create("bug");
-  for (const key of ["requirementId", "taskId"])
-    if (typeof route.query[key] === "string" && route.query[key].length <= 128)
-      form.value!.initial[key] = route.query[key];
-  if (["frontend", "backend", "test"].includes(String(route.query.role)))
-    form.value!.initial.role = route.query.role;
-  formKey.value += ":" + JSON.stringify([form.value!.initial.requirementId, form.value!.initial.taskId]);
-}, { immediate: true });
+watch(
+  () => [
+    overview.value?.project.id,
+    route.query.create,
+    route.query.requirementId,
+    route.query.taskId,
+    route.query.role,
+  ],
+  () => {
+    if (route.query.create !== "bug" || !overview.value || form.value) return;
+    if (!canCreateBug.value || overview.value.project.archived) {
+      notice.value = "当前项目没有登记 Bug 的权限，或项目已归档。";
+      return;
+    }
+    create("bug");
+    for (const key of ["requirementId", "taskId"])
+      if (
+        typeof route.query[key] === "string" &&
+        route.query[key].length <= 128
+      )
+        form.value!.initial[key] = route.query[key];
+    if (["frontend", "backend", "test"].includes(String(route.query.role)))
+      form.value!.initial.role = route.query.role;
+    formKey.value +=
+      ":" +
+      JSON.stringify([
+        form.value!.initial.requirementId,
+        form.value!.initial.taskId,
+      ]);
+  },
+  { immediate: true },
+);
 function cancelForm() {
   form.value = undefined;
   if (route.query.create === "bug") {
-    const { create: _create, requirementId: _requirement, taskId: _task, role: _role, ...query } = route.query;
+    const {
+      create: _create,
+      requirementId: _requirement,
+      taskId: _task,
+      role: _role,
+      ...query
+    } = route.query;
     void router.replace({ path: route.path, query });
   }
 }
@@ -319,39 +379,30 @@ async function saved(result: any) {
 </script>
 <template>
   <div class="projects-page">
-    <div class="page-heading">
+    <div v-if="!projectId" class="page-heading">
       <div>
-        <span class="eyebrow">{{
-          projectId ? "PROJECT / " + projectId : "WORKSPACE"
-        }}</span>
-        <h1>
-          {{
-            overview
-              ? tab === "overview"
-                ? overview.project.name
-                : tabs.find((t) => t.key === tab)?.label
-              : route.query.q
-                ? "搜索结果"
-                : "项目"
-          }}
-        </h1>
-        <p>
-          {{
-            overview?.project.description ||
-            (projectId
-              ? "需求、执行、测试与验收在同一条工作链路上协作。"
-              : "查看全部可见项目，进入协作或配置项目。")
-          }}
-        </p>
+        <span class="eyebrow">WORKSPACE</span>
+        <h1>{{ route.query.q ? "搜索结果" : "项目" }}</h1>
+        <p>查看全部可见项目，进入协作或配置项目。</p>
       </div>
-      <div class="heading-actions">
-        <AButton
-          v-if="state.member?.isAdmin && !projectId && !route.query.q"
-          type="primary"
-          @click="projectAction('create')"
-          ><PlusOutlined aria-hidden="true" />新建项目</AButton
-        >
-        <template v-if="overview">
+      <AButton
+        v-if="state.member?.isAdmin && !route.query.q"
+        type="primary"
+        @click="projectAction('create')"
+        ><PlusOutlined aria-hidden="true" />新建项目</AButton
+      >
+    </div>
+    <ProjectHeader
+      v-else
+      :project-id="projectId"
+      :project="
+        overview?.project ?? state.projects.find((p) => p.id === projectId)
+      "
+      :active="tab"
+      @navigate="kind = status = owner = blocked = ''"
+    >
+      <template #actions
+        ><template v-if="overview">
           <AButton
             v-if="canManage && !overview.project.archived"
             type="primary"
@@ -384,9 +435,9 @@ async function saved(result: any) {
               }}</AButton
             >
           </template>
-        </template>
-      </div>
-    </div>
+        </template></template
+      >
+    </ProjectHeader>
     <AAlert
       v-if="notice"
       :message="notice"
@@ -399,22 +450,12 @@ async function saved(result: any) {
         >{{ error }}<AButton @click="load()">重试加载</AButton></template
       ></AAlert
     >
-    <nav v-if="projectId" class="project-navigation" aria-label="项目导航">
-      <RouterLink
-        v-for="t in tabs"
-        :key="t.key"
-        :to="tabLocation(t.key)"
-        :aria-current="tab === t.key ? 'page' : undefined"
-        @click="kind = status = owner = blocked = ''"
-        >{{ t.label }}</RouterLink
-      >
-    </nav>
     <template v-if="!projectId && !route.query.q">
       <div class="directory-filters">
         <AInput
           v-model:value="projectSearch"
           aria-label="搜索项目名称"
-          placeholder="搜索项目名称"
+          placeholder="搜索名称、编号或简介"
           allow-clear
         />
         <div class="archive-tabs" aria-label="项目归档筛选">
@@ -434,6 +475,9 @@ async function saved(result: any) {
             >全部项目</AButton
           >
         </div>
+        <span class="directory-result"
+          >当前筛选 {{ projects.length }} 个项目</span
+        >
       </div>
       <section v-if="!state.projects.length" class="panel first-project">
         <span class="empty-project-icon"
@@ -459,54 +503,86 @@ async function saved(result: any) {
           <li>进入项目，发布需求并安排执行工作</li>
         </ol>
       </section>
-      <div v-else class="project-card-grid">
+      <template v-else>
         <section
-          v-for="p in projects"
-          :key="p.id"
-          class="panel project-card"
-          :class="{ archived: p.archived }"
+          v-for="group in projectGroups.filter((g) => g.show)"
+          :key="group.key"
+          class="project-directory-section"
+          role="region"
+          :aria-label="group.label + '项目'"
         >
-          <div class="card-top">
-            <span class="project-icon"
-              ><FolderOpenOutlined aria-hidden="true" /></span
-            ><ATag :color="p.archived ? undefined : 'blue'">{{
-              p.archived ? "已归档" : "进行中"
-            }}</ATag>
+          <button
+            v-if="group.key === 'archived' && archive === 'all'"
+            class="archive-section-toggle"
+            :aria-expanded="archivedExpanded"
+            @click="archivedExpanded = !archivedExpanded"
+          >
+            {{ archivedExpanded ? "▾" : "▸" }} 已归档
+            <span>{{ group.items.length }} 个项目</span>
+          </button>
+          <h2 v-else class="directory-section-heading">
+            {{ group.label }} <span>{{ group.items.length }} 个项目</span>
+          </h2>
+          <div v-if="group.expanded" class="project-card-grid">
+            <section
+              v-for="p in group.items"
+              :key="p.id"
+              class="panel project-card"
+              :class="{ archived: p.archived }"
+            >
+              <div class="card-top">
+                <span class="project-icon"
+                  ><FolderOpenOutlined aria-hidden="true" /></span
+                ><ATag :color="p.archived ? undefined : 'blue'">{{
+                  p.archived ? "已归档" : "进行中"
+                }}</ATag>
+              </div>
+              <div>
+                <div class="project-code">{{ p.id }}</div>
+                <h2>
+                  <RouterLink :to="'/projects/' + p.id"
+                    >{{ p.name }} ↗</RouterLink
+                  >
+                </h2>
+                <p>{{ p.description || "暂无项目简介" }}</p>
+              </div>
+              <div class="project-role-summary">
+                <span class="muted">我的项目角色</span>
+                <div class="chips">
+                  <ATag v-for="r in p.myRoles" :key="r.role"
+                    >{{ zh(r.role) }}{{ r.lead ? "负责人" : "" }}</ATag
+                  ><span v-if="!p.myRoles.length">可阅读与生成日报</span>
+                </div>
+              </div>
+              <div class="project-card-footer">
+                <AButton
+                  v-if="state.member?.isAdmin && !p.archived"
+                  type="link"
+                  @click="projectAction('edit', p)"
+                  >编辑项目</AButton
+                ><span v-else class="muted">{{
+                  p.archived ? "业务记录只读" : "按项目角色协作"
+                }}</span
+                ><RouterLink class="enter-project" :to="'/projects/' + p.id"
+                  >{{ p.archived ? "查看历史" : "进入项目" }}
+                  <ArrowUpOutlined aria-hidden="true"
+                /></RouterLink>
+              </div>
+            </section>
           </div>
-          <div>
-            <div class="project-code">{{ p.id }}</div>
-            <h2>
-              <RouterLink :to="'/projects/' + p.id">{{ p.name }} ↗</RouterLink>
-            </h2>
-            <p>{{ p.description || "暂无项目简介" }}</p>
-          </div>
-          <div class="project-role-summary">
-            <span class="muted">我的项目角色</span>
-            <div class="chips">
-              <ATag v-for="r in p.myRoles" :key="r.role"
-                >{{ zh(r.role) }}{{ r.lead ? "负责人" : "" }}</ATag
-              ><span v-if="!p.myRoles.length">可阅读与生成日报</span>
-            </div>
-          </div>
-          <div class="project-card-footer">
-            <AButton
-              v-if="state.member?.isAdmin && !p.archived"
-              type="link"
-              @click="projectAction('edit', p)"
-              >编辑项目</AButton
-            ><span v-else class="muted">{{
-              p.archived ? "业务记录只读" : "按项目角色协作"
-            }}</span
-            ><RouterLink class="enter-project" :to="'/projects/' + p.id"
-              >{{ p.archived ? "查看历史" : "进入项目" }}
-              <ArrowUpOutlined aria-hidden="true"
-            /></RouterLink>
-          </div>
+          <p
+            v-if="group.expanded && !group.items.length && projects.length"
+            class="directory-section-empty"
+          >
+            此分区暂无匹配项目
+          </p>
         </section>
-      </div>
-      <p v-if="state.projects.length && !projects.length" class="empty">
-        没有符合条件的项目，请调整搜索或归档筛选。
-      </p>
+        <section v-if="!projects.length" class="panel directory-empty">
+          <h2>没有符合条件的项目</h2>
+          <p>请调整项目名称、编号、简介或归档筛选。</p>
+          <AButton @click="clearProjectFilters">清除项目筛选</AButton>
+        </section>
+      </template>
     </template>
     <template v-if="overview">
       <section
@@ -544,6 +620,7 @@ async function saved(result: any) {
         show-icon
         message="项目已归档，保留只读历史；管理员可恢复。"
       />
+      <ProjectRelatedWork v-if="tab === 'overview'" :project-id="projectId" />
       <section
         class="collaboration-guide"
         :class="{ 'without-role': !overview.myRoles.length }"
@@ -561,10 +638,18 @@ async function saved(result: any) {
                 .join("、")
             }}
           </p>
-          <p v-if="missingRoles.length">尚未配置岗位：{{ missingRoleText }}。请按项目实际分工补齐。</p>
-          <p v-if="missingRoles.includes('product')">尚未配置产品角色，暂不能指定产品验收人。</p>
-          <p v-if="missingRoles.includes('test')">尚未配置测试角色，测试工作需要相应岗位成员配合。</p>
-          <p>产品验收人须未参与该需求的实际开发或修复；角色兼任本身不等于已参与。</p>
+          <p v-if="missingRoles.length">
+            尚未配置岗位：{{ missingRoleText }}。请按项目实际分工补齐。
+          </p>
+          <p v-if="missingRoles.includes('product')">
+            尚未配置产品角色，暂不能指定产品验收人。
+          </p>
+          <p v-if="missingRoles.includes('test')">
+            尚未配置测试角色，测试工作需要相应岗位成员配合。
+          </p>
+          <p>
+            产品验收人须未参与该需求的实际开发或修复；角色兼任本身不等于已参与。
+          </p>
         </div>
         <div class="guide-actions">
           <RouterLink
@@ -596,11 +681,14 @@ async function saved(result: any) {
             }}</strong
             ><small>含待确认与待验证</small>
           </div>
-          <div>
+          <AButton
+            class="project-metric-link"
+            @click="navigateTab('tests', { queue: 'acceptance' }, true)"
+          >
             <span>待验收需求</span
             ><strong>{{ count("requirement", ["pending_acceptance"]) }}</strong
-            ><small>指定产品验收人核对</small>
-          </div>
+            ><small>查看产品验收队列 →</small>
+          </AButton>
           <div>
             <span>阻塞 / 未分配</span
             ><strong
@@ -612,7 +700,27 @@ async function saved(result: any) {
         <div class="overview-columns">
           <section class="panel">
             <div class="section-heading">
-              <h2>业务入口</h2>
+              <h2>工作状态</h2>
+              <span class="muted">当前项目全部记录</span>
+            </div>
+            <div class="count-list">
+              <div v-for="k in ['requirement', 'task', 'bug']" :key="k">
+                <strong>{{ zh(k) }} · 全部状态 {{ count(k) }}</strong>
+                <div class="chips">
+                  <ATag
+                    v-for="c in overview.counts.filter(
+                      (c: any) => c.kind === k,
+                    )"
+                    :key="c.state"
+                    >{{ zh(c.state) }} {{ c.count }}</ATag
+                  ><span v-if="!count(k)" class="muted">暂无记录</span>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="section-heading">
+              <h2>快捷入口</h2>
               <span class="muted">按项目角色协作</span>
             </div>
             <div class="entry-list">
@@ -646,26 +754,6 @@ async function saved(result: any) {
               </div>
             </div>
           </section>
-          <section class="panel">
-            <div class="section-heading">
-              <h2>工作状态</h2>
-              <span class="muted">当前项目全部记录</span>
-            </div>
-            <div class="count-list">
-              <div v-for="k in ['requirement', 'task', 'bug']" :key="k">
-                <strong>{{ zh(k) }} · 全部状态 {{ count(k) }}</strong>
-                <div class="chips">
-                  <ATag
-                    v-for="c in overview.counts.filter(
-                      (c: any) => c.kind === k,
-                    )"
-                    :key="c.state"
-                    >{{ zh(c.state) }} {{ c.count }}</ATag
-                  ><span v-if="!count(k)" class="muted">暂无记录</span>
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
         <section class="panel project-members">
           <div class="section-heading">
@@ -694,52 +782,61 @@ async function saved(result: any) {
         </section>
       </template>
       <template v-else-if="tab === 'settings'">
-        <div class="settings-layout">
-          <nav class="settings-menu" aria-label="项目设置导航">
-            <span aria-current="page"
-              ><SettingOutlined aria-hidden="true" />基本信息</span
-            ><RouterLink :to="{ path: '/members', query: { projectId } }"
-              >成员与角色</RouterLink
-            ><a href="#project-history">归档与历史</a>
-          </nav>
-          <section class="panel">
-            <div class="section-heading">
-              <h2>项目基本信息</h2>
-              <span class="project-code"
-                >{{ overview.project.id }} · 版本
-                {{ overview.project.version }}</span
-              >
-            </div>
-            <dl class="project-properties">
-              <dt>项目名称</dt>
-              <dd>{{ overview.project.name }}</dd>
-              <dt>项目简介</dt>
-              <dd>{{ overview.project.description || "暂无项目简介" }}</dd>
-              <dt>项目状态</dt>
-              <dd>
-                <ATag :color="overview.project.archived ? undefined : 'blue'">{{
-                  overview.project.archived ? "已归档" : "进行中"
-                }}</ATag>
-              </dd>
-            </dl>
-            <div class="settings-note">
-              <h3>并发编辑会检查版本</h3>
-              <p>
-                使用上方“编辑项目”修改名称与简介。发生冲突时保留填写内容，重新读取最新版本后再提交。
-              </p>
-            </div>
-            <div class="settings-footer">
-              <h3>归档与历史</h3>
-              <p>
-                归档后业务记录只读，历史与贡献完整保留。{{
-                  state.member?.isAdmin
-                    ? "可使用上方项目操作归档或恢复项目。"
-                    : "项目设置由管理员维护。"
-                }}
-              </p>
-            </div>
-          </section>
-        </div>
+        <ProjectSettingsNav :project-id="projectId" :active="settingsSection" />
+        <section
+          v-if="settingsSection === 'basic'"
+          class="panel settings-basic-panel"
+        >
+          <div class="section-heading">
+            <h2>项目基本信息</h2>
+            <span class="project-code"
+              >{{ overview.project.id }} · 版本
+              {{ overview.project.version }}</span
+            >
+          </div>
+          <dl class="project-properties">
+            <dt>项目名称</dt>
+            <dd>{{ overview.project.name }}</dd>
+            <dt>项目简介</dt>
+            <dd>{{ overview.project.description || "暂无项目简介" }}</dd>
+            <dt>项目状态</dt>
+            <dd>
+              <ATag :color="overview.project.archived ? undefined : 'blue'">{{
+                overview.project.archived ? "已归档" : "进行中"
+              }}</ATag>
+            </dd>
+          </dl>
+          <div class="settings-note">
+            <h3>并发编辑会检查版本</h3>
+            <p>
+              {{
+                state.member?.isAdmin
+                  ? "使用项目头部“编辑项目”修改名称与简介。"
+                  : "项目名称与简介由管理员维护。"
+              }}发生冲突时保留填写内容，重新读取最新版本后再提交。
+            </p>
+          </div>
+          <div class="settings-footer">
+            <h3>归档与历史</h3>
+            <p>
+              归档后业务记录只读，历史与贡献完整保留。{{
+                state.member?.isAdmin
+                  ? "可使用上方项目操作归档或恢复项目。"
+                  : "项目设置由管理员维护。"
+              }}
+            </p>
+          </div>
+        </section>
+        <section v-else class="panel panel-body archive-history-guide">
+          <h2>归档与历史</h2>
+          <p>
+            归档后业务记录只读，完整保留授权、编辑、归档与恢复记录。{{
+              state.member?.isAdmin
+                ? "请使用项目头部归档或恢复，先核对相关工作安排。"
+                : "仅管理员可归档或恢复项目。"
+            }}
+          </p>
+        </section>
       </template>
       <template v-else-if="tab === 'tests'">
         <div class="queue-grid">
@@ -877,7 +974,17 @@ async function saved(result: any) {
       </div>
     </section>
     <section v-if="overview" class="workflow-note">
-      <h3>项目协作规则</h3>
+      <div class="workflow-heading">
+        <h3>项目协作规则</h3>
+        <RouterLink
+          :to="{
+            path: '/projects/' + projectId,
+            query: { tab: 'settings', section: 'history' },
+            hash: '#project-history',
+          }"
+          >查看项目活动历史 →</RouterLink
+        >
+      </div>
       <p>
         产品或对应职责负责人可录入、细化需求与拆分任务；需求不支持认领。对应角色成员可在任务或
         Bug
@@ -885,8 +992,15 @@ async function saved(result: any) {
         须先由产品或测试确认，才能认领。产品最终验收须独立于实际开发或修复人员。
       </p>
     </section>
-    <div id="project-history">
-      <HistoryList v-if="overview" kind="project" :id="overview.project.id" />
+    <div
+      v-if="overview && tab === 'settings' && settingsSection === 'history'"
+      id="project-history"
+    >
+      <HistoryList
+        kind="project"
+        :id="overview.project.id"
+        :refresh="overview.project.version"
+      />
     </div>
     <ActionForm
       v-if="form"
@@ -1493,6 +1607,166 @@ async function saved(result: any) {
   }
   .projects-page .section-heading > .project-code {
     max-width: 45%;
+  }
+}
+
+.directory-result {
+  margin-left: auto;
+  color: #7b879b;
+  font-size: 12px;
+}
+.directory-section-heading,
+.archive-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.directory-section-heading span,
+.archive-section-toggle span {
+  font-size: 12px;
+  font-weight: 400;
+  color: #7b879b;
+}
+.archive-section-toggle {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid #e4e9f1;
+  padding: 18px 0 0;
+  background: none;
+  text-align: left;
+  color: #58677d;
+  cursor: pointer;
+}
+.project-directory-section {
+  margin-bottom: 22px;
+  min-width: 0;
+}
+.directory-empty {
+  padding: 40px;
+  text-align: center;
+}
+.directory-empty h2 {
+  font-size: 16px;
+}
+.directory-empty p,
+.directory-section-empty {
+  color: #738097;
+  font-size: 13px;
+}
+.project-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(310px, 100%), 1fr));
+  gap: 18px;
+}
+.project-card {
+  padding: 20px;
+  gap: 14px;
+  transition: box-shadow 0.15s;
+}
+.project-card:hover {
+  border-color: #c9d6ea;
+  box-shadow: 0 5px 18px #17243b0c;
+}
+.project-card h2 {
+  margin: 8px 0;
+}
+.project-card p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.project-role-summary {
+  padding-top: 14px;
+}
+.project-card-footer {
+  gap: 10px;
+}
+.project-metrics {
+  gap: 14px;
+  border: 0;
+  background: none;
+}
+.project-metrics > div,
+.project-metrics > .ant-btn {
+  border: 1px solid #e4e9f1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 17px 18px;
+  min-width: 0;
+}
+.project-metrics > .ant-btn {
+  height: auto;
+  text-align: left;
+  white-space: normal;
+}
+.project-metrics > .ant-btn:hover {
+  border-color: #245bdb;
+  background: #f8faff;
+}
+.project-metrics strong {
+  font-size: 26px;
+}
+.overview-columns {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 18px;
+}
+.entry-list > div {
+  padding: 13px 0;
+}
+.entry-list h3 {
+  margin-bottom: 4px;
+}
+.settings-basic-panel {
+  max-width: 760px;
+}
+.archive-history-guide h2 {
+  font-size: 16px;
+}
+.archive-history-guide p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: #58677d;
+}
+.workflow-heading {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.workflow-heading a {
+  font-size: 12px;
+}
+.project-header :deep(.project-heading-actions .ant-btn) {
+  font-size: 12px;
+  padding-inline: 11px;
+}
+.project-header :deep(.project-heading-description) {
+  max-height: 5.4em;
+  overflow: auto;
+}
+@media (max-width: 850px) {
+  .overview-columns {
+    grid-template-columns: 1fr;
+  }
+  .directory-result {
+    margin-left: 0;
+  }
+}
+@media (max-width: 600px) {
+  .project-metrics {
+    gap: 10px;
+  }
+  .project-metrics > div,
+  .project-metrics > .ant-btn {
+    padding: 15px;
+  }
+  .directory-empty {
+    padding: 30px 16px;
+  }
+  .project-metrics > div:nth-child(2),
+  .project-metrics > div:last-child {
+    border-right: 1px solid #e4e9f1;
   }
 }
 </style>

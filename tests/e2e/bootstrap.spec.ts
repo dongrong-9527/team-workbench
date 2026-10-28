@@ -175,6 +175,7 @@ test('bootstrap role management rejects missing or invalid project selection and
   // SPA navigation retains the conflicting global selection while changing the route project.
   await page.getByRole('link',{name:'查看全部项目',exact:true}).click();
   await page.getByRole('button',{name:'全部项目',exact:true}).click();
+  await page.getByRole('region',{name:'已归档项目',exact:true}).getByRole('button',{name:/^▸ 已归档/}).click();
   await page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true}).click();
   await page.getByRole('link',{name:'管理本项目成员与角色',exact:true}).click();
   await expect(page.getByRole('link',{name:'返回项目 · 初次协作项目已编辑',exact:true})).toBeVisible();
@@ -184,6 +185,7 @@ test('bootstrap role management rejects missing or invalid project selection and
   await page.getByRole('link',{name:'查看全部项目',exact:true}).click();
   await expect(page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'全部项目',exact:true}).click();
+  await page.getByRole('region',{name:'已归档项目',exact:true}).getByRole('button',{name:/^▸ 已归档/}).click();
   await expect(page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true})).toBeVisible();
   for (const query of ['projectId', 'projectId=missing-a&projectId=missing-b']) {
     await page.goto('/members?' + query);

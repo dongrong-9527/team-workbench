@@ -23,6 +23,8 @@ import AAvatar from "ant-design-vue/es/avatar";
 import AModal from "ant-design-vue/es/modal";
 import AAlert from "ant-design-vue/es/alert";
 import { uiTheme, uiLocale } from "./ui";
+import ProjectShortcuts from "./components/ProjectShortcuts.vue";
+import { projectTabs } from "./projectNavigation";
 const navigation = [
   { path: "/my-work", label: "我的工作", icon: AppstoreOutlined },
   { path: "/projects", label: "项目", icon: ProjectOutlined },
@@ -45,8 +47,13 @@ function trapNavigationFocus(event: KeyboardEvent) {
   if (event.key !== "Tab") return;
   const controls = Array.from(
     navigationDialog.value?.querySelectorAll<HTMLElement>(
-      "a[href], button:not(:disabled)",
+      "a[href], button:not(:disabled), input:not(:disabled):not([type='hidden']), select:not(:disabled), textarea:not(:disabled), [tabindex]",
     ) ?? [],
+  ).filter(
+    (control) =>
+      control.tabIndex >= 0 &&
+      control.getClientRects().length > 0 &&
+      !control.matches(":disabled, [aria-disabled='true']"),
   );
   const first = controls[0],
     last = controls.at(-1);
@@ -99,6 +106,24 @@ const currentLabel = computed(() => {
     navigation.find((n) => route.path.startsWith(n.path))?.label ?? "账号设置"
   );
 });
+const routeProject = computed(() => {
+  const id = route.path.startsWith("/projects/")
+    ? String(route.params.id ?? "")
+    : route.path === "/members" && typeof route.query.projectId === "string"
+      ? route.query.projectId
+      : "";
+  return state.projects.find((p) => p.id === id);
+});
+const projectCrumb = computed(() =>
+  route.path === "/members"
+    ? "成员与角色"
+    : route.query.tab === "settings" &&
+        (route.query.section === "history" || route.hash === "#project-history")
+      ? "归档与历史"
+      : projectTabs.find(
+          (t) => t.key === route.query.tab && t.key !== "overview",
+        )?.label,
+);
 const dateLabel = new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai",
   month: "long",
@@ -184,17 +209,7 @@ async function logout() {
               }}</span></RouterLink
             >
           </nav>
-          <div v-if="state.projects.length" class="project-shortcuts">
-            <div class="workspace-label">项目快捷入口</div>
-            <RouterLink
-              v-for="p in state.projects.filter((p) => !p.archived).slice(0, 4)"
-              :key="p.id"
-              :to="'/projects/' + p.id"
-            >
-              <span class="project-dot" aria-hidden="true"></span
-              ><span class="project-name">{{ p.name }}</span>
-            </RouterLink>
-          </div>
+          <ProjectShortcuts :active-id="routeProject?.id" />
           <div class="sidebar-note">
             <strong>记录事实，让协作更清楚</strong>
             <p>今日进展会成为日报的来源。</p>
@@ -250,6 +265,11 @@ async function logout() {
                 >退出登录</AButton
               >
             </nav>
+            <ProjectShortcuts
+              :active-id="routeProject?.id"
+              mobile
+              @select="navOpen = false"
+            />
           </section>
         </ADrawer>
         <div class="workspace" :inert="navOpen">
@@ -262,13 +282,32 @@ async function logout() {
               @click="navOpen = true"
               ><MenuOutlined aria-hidden="true"
             /></AButton>
-            <div class="topbar-context">
+            <nav class="topbar-context" aria-label="当前位置">
               <RouterLink to="/my-work">工作空间</RouterLink
-              ><RightOutlined aria-hidden="true" /><span
-                class="current-crumb"
-                >{{ currentLabel }}</span
-              >
-            </div>
+              ><RightOutlined aria-hidden="true" />
+              <template v-if="routeProject">
+                <RouterLink :to="{ path: '/projects', query: { view: 'all' } }"
+                  >项目</RouterLink
+                ><RightOutlined aria-hidden="true" />
+                <RouterLink
+                  v-if="projectCrumb"
+                  class="crumb-project"
+                  :to="'/projects/' + routeProject.id"
+                  :title="routeProject.name"
+                  >{{ routeProject.name }}</RouterLink
+                >
+                <span v-else class="current-crumb" :title="routeProject.name">{{
+                  routeProject.name
+                }}</span>
+                <template v-if="projectCrumb"
+                  ><RightOutlined aria-hidden="true" /><span
+                    class="current-crumb"
+                    >{{ projectCrumb }}</span
+                  ></template
+                >
+              </template>
+              <span v-else class="current-crumb">{{ currentLabel }}</span>
+            </nav>
             <div class="global-project">
               <label for="global-project"
                 ><span aria-hidden="true">项目范围</span
@@ -410,6 +449,37 @@ async function logout() {
   .session-expired-modal.ant-modal {
     max-width: calc(100vw - 24px);
     margin: auto;
+  }
+}
+
+.topbar-context {
+  min-width: 0;
+  overflow: hidden;
+}
+.topbar-context > a {
+  flex-shrink: 0;
+}
+.topbar-context .crumb-project {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+.topbar-context .anticon {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .topbar-context .crumb-project {
+    max-width: 80px;
+  }
+  .topbar-context {
+    gap: 6px;
+  }
+  .topbar-context .current-crumb {
+    min-width: 0;
+    flex-shrink: 1;
   }
 }
 </style>
