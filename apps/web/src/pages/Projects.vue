@@ -336,7 +336,8 @@ function projectAction(a: string, selected?: any) {
   version.value = a === "create" ? undefined : p.version;
   formKey.value = "project:" + a + ":" + (p?.id ?? "new");
   form.value = {
-    cancelLabel: ["create", "edit"].includes(a) ? "返回并保留草稿" : "取消",
+    cancelLabel: ["create", "edit"].includes(a) ? "返回" : "取消",
+    ...(a === "edit" ? { submit: "保存修改" } : {}),
     title:
       a === "create"
         ? "新建项目"

@@ -24,7 +24,8 @@ export interface FormSpec {
   path: string;
   method?: string;
   submit?: string;
-  cancelLabel?: "取消" | "返回并保留草稿";
+  cancelLabel?: "取消" | "返回";
+  browserDraft?: boolean;
   body: (v: any) => Record<string, any>;
   adopt?: (
     current: Record<string, unknown>,
@@ -34,9 +35,12 @@ export interface FormSpec {
 export function formCancelPresentation(spec: Pick<FormSpec, "fields" | "cancelLabel">, sensitive = false) {
   const showDraftHints = !sensitive && spec.fields.some(field => !field.disabled);
   return {
-    label: showDraftHints && spec.cancelLabel === "返回并保留草稿" ? "返回并保留草稿" : "取消",
+    label: showDraftHints && spec.cancelLabel === "返回" ? "返回" : "取消",
     showDraftHints,
   };
+}
+export function canSaveBrowserDraft(spec: Pick<FormSpec, "fields" | "cancelLabel" | "browserDraft">, sensitive = false) {
+  return !!spec.browserDraft && formCancelPresentation(spec, sensitive).showDraftHints;
 }
 export const options = (values: string[]) =>
   values.map((value) => ({ value, label: zh(value) }));
@@ -259,7 +263,8 @@ export function createForm(
   return {
     title: `新建${zh(kind)}`,
     ...(kind === "requirement" ? {requirementEditor:{mode:"create" as const},submit:"保存草稿"} : {}),
-    cancelLabel: "返回并保留草稿",
+    cancelLabel: "返回",
+    browserDraft: kind !== "requirement",
     projectId,
     path: `/api/${kind === "requirement" ? "requirements" : kind === "task" ? "tasks" : "bugs"}`,
     fields,
@@ -863,15 +868,16 @@ export function actionForm(
     kind,
     kind === "task" && o.kind !== "other" ? o.kind : o.role,
   );
-  return {
-    title,
-    path,
-    cancelLabel: [
+  const longDraft = [
       "assign", "transfer", "requestTransfer", "submit", "checkPass", "checkFail",
       "verifyPass", "verifyFail", "test", "block", "reject", "defineChecks",
       "refine", "revise", "makeReady", "acceptance", "returnAcceptance", "waiver", "update",
-    ].includes(action) || (req && action === "cancel" && initial.taskDisposition.length > 0)
-      ? "返回并保留草稿" : "取消",
+    ].includes(action) || (req && action === "cancel" && initial.taskDisposition.length > 0);
+  return {
+    title,
+    path,
+    cancelLabel: longDraft ? "返回" : "取消",
+    browserDraft: longDraft,
     initial,
     fields,
     body,

@@ -19,7 +19,8 @@ import AModal from "ant-design-vue/es/modal";
 import AAlert from "ant-design-vue/es/alert";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import type { FormSpec, Field } from "../forms";
-import { formCancelPresentation } from "../forms";
+import { formCancelPresentation, canSaveBrowserDraft } from "../forms";
+import { compatibleDraft, type DraftContext } from "../formDraft";
 import {
   BUSINESS_BODY_LIMIT,
   CHECK_ENTRY_LIMIT,
@@ -310,11 +311,18 @@ const fieldSections = computed<{title:string;fields:Field[];collapsible?:boolean
 });
 const actor = state.member?.id ?? "anonymous";
 const storageKey = `workbench:draft:${actor}:${props.draftKey}`;
+const draftContext: DraftContext = { actor, draftKey: props.draftKey, path: props.spec.path, method: props.spec.method ?? "POST", projectId: props.spec.projectId };
 let stored: any;
 try {
   stored = !props.sensitive
     ? JSON.parse(localStorage.getItem(storageKey) ?? "null")
     : null;
+  if (!compatibleDraft(stored, draftContext)) {
+    const binding = stored && { ...stored, values: undefined, version: undefined };
+    const unresolved = stored?.creationUncertain === true || stored?.requirementDelivery?.unknown === true || stored?.requirementDelivery?.receipt;
+    // Bad editable values must not discard an otherwise valid unresolved command.
+    stored = unresolved && compatibleDraft(binding, draftContext) ? binding : undefined;
+  }
 } catch {}
 const storedCommand = stored?.fingerprint && stored?.key ? stored : undefined;
 const restoredValues = (cancelPresentation.value.showDraftHints ? stored?.values : undefined) ?? JSON.parse(JSON.stringify(props.spec.initial));
@@ -344,15 +352,19 @@ const acceptancePassBlocked = computed(
 let active = true;
 let fingerprint = storedCommand?.fingerprint ?? "",
   key = storedCommand?.key ?? "";
-const draftPersisted = ref(true);
+const draftPersisted = ref(true), localDraftNotice = ref(""), storageLeaveOpen = ref(false);
+const creationUncertain = ref(!!creationKind.value && !props.spec.requirementEditor && stored?.creationUncertain === true);
 const requirementEditor = useRequirementEditor({
   spec:()=>props.spec,actor,stored,storageKey,values,busy,error,command:()=>({fingerprint,key}),persist,
   reset:()=>{fingerprint="";key="";version.value=props.version;conflict.value=undefined;error.value="";},
   saved:result=>emit("saved",result),
 });
+const anyUnknown = computed(() => requirementEditor.ui.unknown || creationUncertain.value);
+const browserDraft = computed(() => canSaveBrowserDraft(props.spec, props.sensitive));
 const requirementProject = computed(()=>state.projects.find(project=>project.id===props.spec.projectId));
 function persist() {
   if (props.sensitive) return true;
+  if (state.member?.id !== actor) return false;
   try {
   // Confirmations have no editable draft. Keep only an attempted command's
   // retry binding, so an unknown result cannot cause a second ticket issuance.
@@ -364,6 +376,8 @@ function persist() {
   localStorage.setItem(
     storageKey,
     JSON.stringify({
+      context: draftContext,
+      creationUncertain: creationUncertain.value,
       ...(cancelPresentation.value.showDraftHints ? { values: values.value } : {}),
       version: version.value,
       fingerprint,
@@ -379,7 +393,11 @@ function persist() {
     return false;
   }
 }
-watch(values, persist, { deep: true });
+watch(values, () => { localDraftNotice.value = ""; persist(); }, { deep: true });
+function saveBrowserDraft() {
+  if (!browserDraft.value || busy.value || otherPending.value || state.expired || anyUnknown.value || state.member?.id !== actor) return;
+  localDraftNotice.value = persist() ? "草稿已保存在当前浏览器，尚未提交业务数据。" : "草稿保存失败，内容仍在当前页面，请勿直接离开。";
+}
 async function submit() {
   if (busy.value || otherPending.value || state.expired) return;
   if (
@@ -417,8 +435,13 @@ async function send() {
   error.value = "";
   reasons.value = [];
   const alreadyUnknown = requirementEditor.ui.unknown;
+  const creationWasUncertain = creationUncertain.value;
   try {
-    const originalBody = requirementEditor.pendingBody();
+    let originalBody = requirementEditor.pendingBody();
+    if (creationUncertain.value) {
+      if (!compatibleDraft({context:draftContext,fingerprint,key},draftContext)) throw new Error("无法恢复原创建请求，请先核对列表；不会重新创建。");
+      originalBody = JSON.parse(fingerprint)[2];
+    }
     const body = originalBody ?? props.spec.body(values.value);
     if (!originalBody && version.value !== undefined) body.expectedVersion = version.value;
     if (
@@ -438,8 +461,10 @@ async function send() {
       key = crypto.randomUUID();
     }
     requirementEditor.markPending();
+    if (creationKind.value && !requirementEditor.enabled.value) creationUncertain.value = true;
     if(!persist()){
       requirementEditor.ui.unknown=alreadyUnknown;
+      creationUncertain.value=creationWasUncertain;
       throw new Error("浏览器无法暂存重试绑定，请释放空间后重试；本次请求尚未发送。");
     }
     const result = await request<any>(props.spec.path, {
@@ -449,14 +474,17 @@ async function send() {
     });
     if (!active || state.member?.id !== actor || state.expired) return;
     if (await requirementEditor.acknowledged(result)) return;
+    creationUncertain.value = false;
     localStorage.removeItem(storageKey);
     emit("saved", result);
   } catch (e) {
     if (!active || state.member?.id !== actor) return;
     requirementEditor.failed(e, alreadyUnknown);
+    if (!creationWasUncertain && e instanceof ApiError && ![0,500,502,503,504].includes(e.code)) creationUncertain.value = false;
+    persist();
     error.value = (e as Error).message;
     if (e instanceof ApiError) {
-      conflict.value = e.code === 409 && !requirementEditor.ui.unknown ? e.current : undefined;
+      conflict.value = e.code === 409 && !anyUnknown.value ? e.current : undefined;
       reasons.value = e.reasons ?? [];
     }
   } finally {
@@ -465,7 +493,7 @@ async function send() {
   }
 }
 function adopt(current: Record<string, unknown>) {
-  if (requirementEditor.enabled.value && requirementEditor.ui.unknown) return;
+  if (anyUnknown.value) return;
   if (typeof current.version === "number") {
     version.value = current.version;
     props.spec.adopt?.(current, values.value);
@@ -483,10 +511,21 @@ function staleAcceptance(current: Record<string, unknown>) {
     "验收对象已变更，填写内容已保留。请核对并采用最新版本后重新检查验收条件。";
 }
 async function cancel() {
-  if (busy.value || returnConfirmation.value) return;
+  if (busy.value || otherPending.value || returnConfirmation.value) return;
+  if (state.member?.id !== actor) { emit("cancel"); return; }
+  if (!persist()) { storageLeaveOpen.value = true; return; }
   if (requirementEditor.enabled.value && !await requirementEditor.allowClose()) return;
-  persist();
   emit("cancel");
+}
+function leaveWithoutDraft() {
+  if (busy.value || otherPending.value) return;
+  storageLeaveOpen.value = false;
+  emit("cancel");
+}
+async function guardNavigation() {
+  if (busy.value || otherPending.value) return false;
+  if (state.member?.id === actor && !persist()) return false;
+  return requirementEditor.allowNavigation();
 }
 async function validationFailed(failure: {errorFields?:{name:(string|number)[]}[]}) {
   if(!requirementEditor.enabled.value)return;
@@ -602,8 +641,8 @@ const textRules = (label: string, max: number, required = false) => [
     },
   },
 ];
-onBeforeRouteLeave(() => requirementEditor.allowNavigation());
-onBeforeRouteUpdate(() => requirementEditor.allowNavigation());
+onBeforeRouteLeave(guardNavigation);
+onBeforeRouteUpdate(guardNavigation);
 onMounted(async () => {
   void refreshBugs();
   document.addEventListener("keydown", trapProgressFocus);
@@ -689,6 +728,10 @@ onUnmounted(() => {
           <AAlert type="warning" message="保存结果暂未确认，原请求已保留；请重试确认，避免重复创建或重复修改。" show-icon />
           <AButton :disabled="busy||state.expired||otherPending" :loading="busy" @click="send">重试确认保存</AButton>
         </section>
+        <section v-if="creationUncertain" class="requirement-pending-command">
+          <AAlert type="warning" message="创建结果暂未确认，已保留原请求；请按原请求重试，返回或刷新后也不会重新创建。" show-icon />
+          <AButton :disabled="busy||state.expired||otherPending" :loading="busy" @click="send">重试确认创建</AButton>
+        </section>
         <AForm
           v-show="!requirementEditor.ui.receipt"
           ref="form"
@@ -697,7 +740,7 @@ onUnmounted(() => {
           @finish="submit"
           @finishFailed="validationFailed"
           :disabled="
-            busy || state.expired || otherPending || returnConfirmation || requirementEditor.ui.unknown
+            busy || state.expired || otherPending || returnConfirmation || anyUnknown
           "
           :required-mark="false"
         >
@@ -1086,9 +1129,10 @@ onUnmounted(() => {
             <AButton class="mutation-cancel" :disabled="busy" @click="cancel">{{
               cancelPresentation.label
             }}</AButton>
-            <AButton v-if="requirementEditor.enabled.value" :disabled="busy||otherPending||requirementEditor.ui.unknown" @click="requirementEditor.ui.clearOpen=true">{{ spec.requirementEditor?.mode==='create'?'清空':'清空未保存修改' }}</AButton>
+            <AButton v-if="requirementEditor.enabled.value" :disabled="busy||otherPending||anyUnknown" @click="requirementEditor.ui.clearOpen=true">{{ spec.requirementEditor?.mode==='create'?'清空':'清空未保存修改' }}</AButton>
+            <AButton v-if="browserDraft" :disabled="busy||otherPending||state.expired||anyUnknown" @click="saveBrowserDraft">保存为草稿</AButton>
             <AButton
-              v-if="!requirementEditor.ui.unknown"
+              v-if="!anyUnknown"
               class="mutation-submit"
               type="primary"
               html-type="submit"
@@ -1105,8 +1149,10 @@ onUnmounted(() => {
                 busy ? "正在提交…" : (spec.submit ?? `确认${spec.title}`)
               }}</AButton
             >
+            <p v-if="localDraftNotice" role="status" class="local-draft-feedback">{{ localDraftNotice }}</p>
+            <span v-if="browserDraft" class="muted">仅保存在当前浏览器，图片不随草稿保存。</span>
             <span v-if="cancelPresentation.showDraftHints" class="muted mutation-draft-caption"
-              >{{ !draftPersisted?'浏览器暂存失败，当前页面内容尚在，离开可能丢失。':requirementEditor.enabled.value?'文字已在本账号浏览器自动暂存；待上传图片不随刷新恢复。':'仅保存本账号普通工作草稿' }}</span
+              >{{ !draftPersisted?'浏览器暂存失败，当前页面内容尚在，离开可能丢失。':requirementEditor.enabled.value?'文字已在本账号浏览器自动暂存；待上传图片不随刷新恢复。':'普通输入已在当前账号浏览器自动暂存，尚未提交。' }}</span
             >
           </div>
         </AForm>
@@ -1259,6 +1305,10 @@ onUnmounted(() => {
       </div>
     </component>
   </Teleport>
+  <AModal :open="storageLeaveOpen" title="本地暂存失败" :z-index="1300" :mask-closable="false" @cancel="storageLeaveOpen=false">
+    <p>未提交文字和待上传图片仅保留在本页，返回后可能丢失。已保存的服务器对象不会被删除，原有重试绑定不会被清除。</p>
+    <template #footer><AButton @click="storageLeaveOpen=false">继续填写</AButton><AButton danger @click="leaveWithoutDraft">放弃本页内容并返回</AButton></template>
+  </AModal>
   <AModal :open="requirementEditor.ui.clearOpen" title="清空未保存内容" :mask-closable="false" :keyboard="!busy" @cancel="requirementEditor.ui.clearOpen=false">
     <p>{{ spec.requirementEditor?.mode==='create'?'将恢复空白初始内容，并移除本次待上传图片。':'将放弃未保存修改，恢复本次打开时的内容，并移除本次待上传图片。' }}服务端对象和已保存附件不受影响。</p>
     <template #footer><AButton :disabled="busy" @click="requirementEditor.ui.clearOpen=false">取消</AButton><AButton danger :disabled="busy" @click="requirementEditor.clear">确认清空</AButton></template>
