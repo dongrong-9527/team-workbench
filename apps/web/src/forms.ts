@@ -46,6 +46,7 @@ const fieldLimits: Record<string, number> = {
   displayName: 100,
   name: 120,
   description: 6000,
+  expectedCompletion: 2000,
   definitionOfDone: 6000,
   sourceDescription: 2000,
   sourceReason: 2000,
@@ -177,6 +178,7 @@ export function createForm(
     sourceDescription: "",
     sourceUrl: "",
     description: "",
+    expectedCompletion: "",
     acceptorId: "",
     criteria: [],
     expected: "",
@@ -197,6 +199,9 @@ export function createForm(
           }),
           field("sourceUrl", "腾讯文档 / 来源链接（仅 HTTPS）", "url", false),
           field("description", "需求细化说明", "textarea", false),
+          field("expectedCompletion", "期望完成时间", "textarea", false, {
+            help: "选填，例如“本周五前”“下个版本”；仅记录文字，不产生到期提醒。",
+          }),
           memberField("acceptorId", "产品验收人"),
           field("criteria", "验收条目", "definitions", false),
           select("role", "职责范围", ["frontend", "backend", "test"]),
@@ -268,6 +273,7 @@ export function createForm(
               ...(isProduct ? ["acceptorId"] : []),
             ]),
             description: v.description ?? "",
+            expectedCompletion: v.expectedCompletion ?? "",
             source: source(v),
             criteria: criteria(v.criteria),
           }
@@ -402,6 +408,7 @@ export function actionForm(
     ...pick(o, [
       "title",
       "description",
+      "expectedCompletion",
       "definitionOfDone",
       "priority",
       "expected",
@@ -633,6 +640,9 @@ export function actionForm(
         field("sourceUrl", "来源链接（HTTPS）", "url", false),
         memberField("acceptorId", "产品验收人", true),
         field("criteria", "验收条目", "definitions"),
+        field("expectedCompletion", "期望完成时间", "textarea", false, {
+          help: "选填，例如“本周五前”“下个版本”；仅记录文字，不产生到期提醒。",
+        }),
       );
     if (bug)
       fields.push(
@@ -677,7 +687,7 @@ export function actionForm(
       ...pick(
         v,
         req
-          ? ["title", "description"]
+          ? ["title", "description", "expectedCompletion"]
           : bug
             ? [
                 "title",

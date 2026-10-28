@@ -68,6 +68,7 @@ export interface AcceptanceRound {
 }
 export interface Requirement {
   acceptanceTargetVersion?: string;
+  expectedCompletion?: string;
   id: Id;
   projectId: Id;
   title: string;

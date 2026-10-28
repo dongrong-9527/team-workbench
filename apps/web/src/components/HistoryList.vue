@@ -98,6 +98,7 @@ function projectRoles(snapshot: Record<string, unknown> | null | undefined) {
 const fields: Record<string, string> = {
   title: "标题",
   description: "说明",
+  expectedCompletion: "期望完成时间",
   done: "实际工作",
   next: "下一步",
   obstacle: "障碍",

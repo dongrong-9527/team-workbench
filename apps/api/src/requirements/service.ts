@@ -260,6 +260,7 @@ export function changeRequirement(
     const next = { ...r };
     const patch = [
       "title",
+      "expectedCompletion",
       "source",
       "description",
       "acceptorId",
@@ -358,7 +359,7 @@ export function changeRequirement(
             422,
             "Editorial changes cannot change behavior",
           );
-        for (const k of ["title", "description", "source"])
+        for (const k of ["title", "description", "source", "expectedCompletion"])
           if (k in cmd) (next as any)[k] = cmd[k];
       } else {
         if (cmd.impactConfirmed !== true)

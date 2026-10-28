@@ -57,6 +57,7 @@ function validate(b: Record<string, unknown>) {
   if ("role" in b && !["frontend", "backend", "test"].includes(String(b.role)))
     throw new DomainError(400, "Invalid role");
   if ("description" in b) narrative(b.description, 0, 6000);
+  if ("expectedCompletion" in b) narrative(b.expectedCompletion, 0, 2000);
   if (
     "priority" in b &&
     !["high", "medium", "low"].includes(String(b.priority))
@@ -170,7 +171,7 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
       const b = fields(
         request.body,
         ["projectId", "title", "source", "description", "criteria", "priority"],
-        ["role", "acceptorId"],
+        ["role", "acceptorId", "expectedCompletion"],
       );
       text(b.projectId, 1, 128);
       validate(b);
@@ -187,6 +188,7 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
         suggestChange: ["reason"],
         refine: [
           "title",
+          "expectedCompletion",
           "source",
           "description",
           "acceptorId",
@@ -198,6 +200,7 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
         start: ["reason"],
         revise: [
           "kind",
+          "expectedCompletion",
           "reason",
           "affectedTaskIds",
           "affectedCheckIds",

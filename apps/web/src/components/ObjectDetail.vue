@@ -505,6 +505,7 @@ function split() {
                 <section class="doc-section">
                   <h2>需求与来源</h2>
                   <p class="body-text">{{ o.description || "尚未细化说明" }}</p>
+                  <p class="body-text">期望完成时间：{{ o.expectedCompletion || "未填写" }}</p>
                   <p class="body-text">{{ o.source.description }}</p>
                   <a
                     v-if="o.source.url?.startsWith('https://')"
