@@ -47,7 +47,7 @@ async function expectResponsiveDrawer(page: Page, dialog: Locator) {
       ),
     ).toBe(true);
     await expect(
-      dialog.getByRole("button", { name: "返回并保留草稿", exact: true }),
+      dialog.getByRole("button", { name: "返回", exact: true }),
     ).toBeVisible();
   }
 }
@@ -112,7 +112,7 @@ for (const kind of ["task", "bug"] as const) {
     await expectResponsiveDrawer(page, dialog);
     await evidence(page, bug);
     await dialog
-      .getByRole("button", { name: "返回并保留草稿", exact: true })
+      .getByRole("button", { name: "返回", exact: true })
       .click();
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
@@ -151,7 +151,7 @@ for (const kind of ["task", "bug"] as const) {
     await expectResponsiveDrawer(page, dialog);
     await checks(page);
     await dialog
-      .getByRole("button", { name: "返回并保留草稿", exact: true })
+      .getByRole("button", { name: "返回", exact: true })
       .click();
     await expect(dialog).toHaveCount(0);
     await reviewTrigger.click();
@@ -180,7 +180,7 @@ for (const kind of ["task", "bug"] as const) {
   });
 }
 
-test("requirement task splitting uses a responsive drawer and preserves its initial relationship", async ({
+test("requirement task splitting uses a responsive modal and preserves its initial relationship", async ({
   page,
 }) => {
   await login(page, "product");
@@ -214,7 +214,15 @@ test("requirement task splitting uses a responsive drawer and preserves its init
   const trigger = page.getByRole("button", { name: "拆分任务", exact: true });
   await trigger.click();
   const dialog = page.getByRole("dialog");
-  await expectResponsiveDrawer(page, dialog);
+  await expect(page.locator(".ant-modal-mask")).toBeVisible();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect.poll(async () => {
+      const box = await dialog.locator(".creation-action-modal").boundingBox();
+      return Math.round(box!.width);
+    }).toBe(width === 1440 ? 960 : 366);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
   await expect(dialog.getByLabel("关联需求编号", { exact: true })).toHaveValue(
     requirement.id,
   );
@@ -223,7 +231,7 @@ test("requirement task splitting uses a responsive drawer and preserves its init
     .getByLabel("完成标准", { exact: true })
     .fill("按需求条目完成实际执行工作");
   await dialog
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
   await trigger.click();

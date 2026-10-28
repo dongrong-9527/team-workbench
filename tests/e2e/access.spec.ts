@@ -62,7 +62,7 @@ test("task_10 session expiry retains own draft, identity switch isolates it, mob
   await input.dispatchEvent("compositionstart");
   await input.fill("中文输入尚未保存");
   await input.dispatchEvent("compositionend", { data: "中文输入尚未保存" });
-  await page.getByRole("button", { name: "返回并保留草稿" }).click();
+  await page.getByRole("button", { name: "返回" }).click();
   await page.goBack();
   await page.goto(url);
   await action(page, "写工作更新");
@@ -75,7 +75,7 @@ test("task_10 session expiry retains own draft, identity switch isolates it, mob
   });
   await expect(expired.getByRole("alert")).toContainText("登录已过期");
   await expired.getByRole("button", { name: "取消", exact: true }).click();
-  await page.getByRole("button", { name: "返回并保留草稿" }).click();
+  await page.getByRole("button", { name: "返回" }).click();
   await page.getByRole("link", { name: "重新登录", exact: true }).click();
   await page.getByLabel("登录账号").fill("dev2");
   await page.getByLabel("密码", { exact: true }).fill("Synthetic-demo-2026!");
@@ -83,7 +83,7 @@ test("task_10 session expiry retains own draft, identity switch isolates it, mob
   await expect(page.getByRole("heading", { name: /中文长标题/ })).toBeVisible();
   await action(page, "写工作更新");
   await expect(input).toHaveValue("");
-  await page.getByRole("button", { name: "返回并保留草稿" }).click();
+  await page.getByRole("button", { name: "返回" }).click();
   await login(page, "dev");
   await page.goto(url);
   await action(page, "写工作更新");

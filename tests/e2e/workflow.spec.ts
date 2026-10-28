@@ -267,7 +267,7 @@ test("task_10 new update drafts and correction drafts stay separate; correction 
   await page
     .getByLabel("今天实际做了什么", { exact: true })
     .fill("第二条尚未保存的贡献");
-  await page.getByRole("button", { name: "返回并保留草稿" }).click();
+  await page.getByRole("button", { name: "返回" }).click();
   await page.getByRole("button", { name: /我的工作更新/ }).click();
   await action(page, "更正此条更新");
   await expect(

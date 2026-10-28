@@ -114,7 +114,7 @@ test("expired session opens one central modal, blocks writes and preserves the a
   await save.evaluate((button: HTMLButtonElement) => button.click());
   expect(writes).toHaveLength(1);
   await form
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await page.getByRole("link", { name: "重新登录", exact: true }).click();
   await expect(page).toHaveURL(/\/login\?return=/);
@@ -295,7 +295,7 @@ test("upload failure modal retains the original file and retries a lost real res
     .getByLabel("今天实际做了什么", { exact: true })
     .fill("上传在途期间不能另起保存命令");
   await page
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   const panel = page.getByRole("region", { name: "图片附件", exact: true });
   const png = await sharp({
@@ -392,7 +392,7 @@ test("upload failure modal retains the original file and retries a lost real res
     await save.evaluate((button: HTMLButtonElement) => button.click());
     expect(otherWrites).toHaveLength(0);
     await update
-      .getByRole("button", { name: "返回并保留草稿", exact: true })
+      .getByRole("button", { name: "返回", exact: true })
       .evaluate((button: HTMLButtonElement) => button.click());
     await expect(update).toHaveCount(0);
     // Unmounting that unrelated form must not release the upload's token.

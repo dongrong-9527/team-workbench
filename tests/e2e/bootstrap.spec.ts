@@ -31,7 +31,7 @@ test('bootstrap administrator can enter a new project and configure its explicit
   await action(page,'编辑项目');
   await page.getByLabel('项目名称',{exact:true}).fill('初次协作项目已编辑');
   await page.getByLabel('项目简介',{exact:true}).fill('可维护的项目简介');
-  await submit(page,'确认编辑项目');
+  await submit(page,'保存修改');
   await expect(page.getByText('可维护的项目简介',{exact:true}).first()).toBeVisible();
   projectId = page.url().split('/').at(-1)!;
   await page.getByRole('link',{name:'管理本项目成员与角色',exact:true}).click();

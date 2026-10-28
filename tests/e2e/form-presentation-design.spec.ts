@@ -254,7 +254,7 @@ test("pending creation keeps the session intact until the command settles", asyn
   ).toBeEnabled();
 });
 
-test("creation uses an inline main dialog and preserves drafts on Escape", async ({
+test("creation uses a real masked modal and preserves drafts on Escape", async ({
   page,
 }) => {
   await login(page, "product");
@@ -262,8 +262,9 @@ test("creation uses an inline main dialog and preserves drafts on Escape", async
   const trigger = page.getByRole("button", { name: "新建任务", exact: true });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "新建任务", exact: true });
-  await expect(page.locator("#main > .page-action-form")).toHaveCount(1);
-  await expect(dialog).toHaveAttribute("aria-modal", "false");
+  await expect(page.locator("#main > .page-action-form")).toHaveCount(0);
+  await expect(page.locator(".ant-modal-mask")).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
   await expect(
     dialog.getByRole("heading", { name: "填写顺序", exact: true }),
   ).toBeVisible();
@@ -276,7 +277,7 @@ test("creation uses an inline main dialog and preserves drafts on Escape", async
     "合成页面创建草稿",
   );
   await dialog
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await expect(trigger).toBeVisible();
 });

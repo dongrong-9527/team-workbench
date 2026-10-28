@@ -173,7 +173,7 @@ test("Ant mutation form validates, keeps popup Escape local and restores drafts"
   await expect(page.getByLabel("标题", { exact: true })).toHaveValue(
     "键盘草稿",
   );
-  await dialog.getByRole("button", { name: "返回并保留草稿" }).click();
+  await dialog.getByRole("button", { name: "返回" }).click();
   await expect(dialog).toHaveCount(0);
 });
 
@@ -217,7 +217,7 @@ test("Ant mutation clear and pending submission retain command and navigation se
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "返回并保留草稿" }),
+    page.getByRole("button", { name: "返回" }),
   ).toBeDisabled();
   await page.goBack();
   await expect(page).toHaveURL(/\/projects\/p1$/);
@@ -361,7 +361,7 @@ test("nested supplementary-character bounds block requests and restored drafts u
   expect(requests).toHaveLength(0);
   await page.getByLabel("条目说明", { exact: true }).fill("😀".repeat(1000));
   await page
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await page.evaluate(() => {
     const key = Object.keys(localStorage).find((key) =>

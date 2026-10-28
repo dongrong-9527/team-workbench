@@ -21,11 +21,11 @@ async function image(name: string) {
   };
 }
 
-test("requirement editor keeps its container, collapses extra detail and saves real prose as a server draft", async ({
+test("requirement modal keeps its layout, collapses extra detail and saves real prose as a server draft", async ({
   page,
 }, info) => {
   const editor = await openNew(page);
-  await expect(editor).toHaveClass(/requirement-editor/);
+  await expect(editor.locator(".requirement-editor")).toBeVisible();
   await expect(
     editor.getByText("当前提交人：林产品", { exact: true }),
   ).toBeVisible();
@@ -333,7 +333,7 @@ test("paste and drag preview remain local and cancelled leaving retains the same
     editor.getByRole("img", { name: "待上传：paste.png", exact: true }),
   ).toBeVisible();
   await editor
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   const discard = page.getByRole("dialog", {
     name: "放弃待上传图片？",
@@ -344,7 +344,7 @@ test("paste and drag preview remain local and cancelled leaving retains the same
     editor.getByRole("img", { name: "待上传：paste.png", exact: true }),
   ).toBeVisible();
   await editor
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await discard
     .getByRole("button", { name: "放弃待上传图片并离开", exact: true })

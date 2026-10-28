@@ -26,7 +26,7 @@ test("detail action links open once, keep drafts and never submit automatically"
     .getByLabel("今天实际做了什么", { exact: true })
     .fill("合成导航草稿，尚未提交");
   await dialog
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
   await page.reload();

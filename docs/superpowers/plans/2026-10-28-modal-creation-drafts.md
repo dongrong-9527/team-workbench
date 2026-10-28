@@ -32,11 +32,11 @@
 
 **Interfaces:** FormSpec.browserDraft?:boolean; cancelLabel is 取消|返回. DraftContext={actor,draftKey,path,method,projectId?}; compatibleDraft(saved,context) validates new envelope and legacy matching command path. ActionForm uses current context when restoring and persists it alongside existing values/version/fingerprint/key. Browser draft action only calls local persistence.
 
-- [ ] Write failing policy/context tests plus browser incomplete-draft/no-write/short-form and unknown task/Bug replay tests.
-- [ ] Run focused unit/browser RED and inspect actual causes.
-- [ ] Implement minimal capability, copy, context binding, explicit local-save feedback and storage-failure close guard. Keep idempotency metadata independent from editable drafts.
-- [ ] Lock task/Bug unknown creation to original command; preserve ambiguity through rejected retries/return/reload.
-- [ ] Run focused tests GREEN and types; commit Task1 after relevant proof.
+- [x] Write failing policy/context tests plus browser incomplete-draft/no-write/short-form and unknown task/Bug replay tests.
+- [x] Run focused unit/browser RED and inspect actual causes.
+- [x] Implement minimal capability, copy, context binding, explicit local-save feedback and storage-failure close guard. Keep idempotency metadata independent from editable drafts.
+- [x] Lock task/Bug unknown creation to original command; preserve ambiguity through rejected retries/return/reload.
+- [x] Run focused tests GREEN and types; commit Task1 after relevant proof.
 
 ### Task 2: Real creation Modal and preserved layout
 
@@ -44,14 +44,14 @@
 
 **Interfaces:** Existing createForm paths determine creation identity; real Modal overrides page/Drawer only for those paths. pageFormKind still describes content where needed; evidence pages remain inline. Uses Task1 return and context protection.
 
-- [ ] Write/run browser RED for standalone3types, requirement split, linked Bug, backdrop, close/Esc/focus, nested confirmation, narrow-screen scroll.
-- [ ] Use real AModal, separate content/container flags, bounded scroll and fixed actions; background remains current page. Preserve layout/controller behaviors and safe route fallback.
-- [ ] Run focused browser GREEN and inspect synthetic desktop/mobile screenshots; adapt relevant old intentional page/Drawer assertions.
-- [ ] Commit after types/build and relevant integration checks.
+- [x] Write/run browser RED for standalone3types, requirement split, linked Bug, backdrop, close/Esc/focus, nested confirmation, narrow-screen scroll.
+- [x] Use real AModal, separate content/container flags, bounded scroll and fixed actions; background remains current page. Preserve layout/controller behaviors and safe route fallback.
+- [x] Run focused browser GREEN and inspect synthetic desktop/mobile screenshots; adapt relevant old intentional page/Drawer assertions.
+- [x] Commit after types/build and relevant integration checks.
 
 ### Task 3: Whole-change review, regression and candidate
 
-- [ ] Fresh independent whole-change reviewer reads spec and baseline6640f28 diff; fix meaningful findings with actual RED→GREEN.
+- [x] Fresh independent whole-change reviewer reads spec and baseline6640f28 diff; fix meaningful findings with actual RED→GREEN.
 - [ ] Run final npm test, typecheck/build, full e2e; inspect full aggregate (not last case number) and browser diagnostics. All failures reported and resolved.
 - [ ] Fixed application commit, update only four delivery pins, run15 packaging gates, push original draftPR; exactHEAD push/PR CI complete.
 - [ ] Verify candidate source/config SHA, actual audit/native/production smoke and upload/download equality/checksums; hand off artifact expiry and rollback evidence. Do not deploy.

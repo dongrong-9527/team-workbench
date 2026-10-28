@@ -127,14 +127,14 @@ test("project cards open the chosen versioned edit form and preserve its draft",
     .getByLabel("项目简介", { exact: true })
     .fill("仅用于验证取消后的项目草稿");
   await page
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
   await card.getByRole("button", { name: "编辑项目", exact: true }).click();
   await expect(page.getByLabel("项目简介", { exact: true })).toHaveValue(
     "仅用于验证取消后的项目草稿",
   );
   await page
-    .getByRole("button", { name: "返回并保留草稿", exact: true })
+    .getByRole("button", { name: "返回", exact: true })
     .click();
 });
 

@@ -85,7 +85,7 @@ test("short work confirmation cancels without a write or false draft notice and 
   await page.getByRole("button", { name: "写工作更新", exact: true }).click();
   const long = page.getByRole("dialog", { name: "写工作更新", exact: true });
   await long.getByLabel("今天实际做了什么", { exact: true }).fill("保留实际填写，不提交进度");
-  await long.getByRole("button", { name: "返回并保留草稿", exact: true }).click();
+  await long.getByRole("button", { name: "返回", exact: true }).click();
   await page.getByRole("button", { name: "写工作更新", exact: true }).click();
   await expect(long.getByLabel("今天实际做了什么", { exact: true })).toHaveValue("保留实际填写，不提交进度");
   await long.locator(".ant-drawer-close").click();
@@ -124,7 +124,10 @@ test("reset pending state blocks dismissal and unknown-result retry keeps its or
   await expect(dialog.getByRole("alert")).toContainText("网络");
   await dialog.locator(".mutation-cancel").click();
   const retry = await page.evaluate(id => JSON.parse(localStorage.getItem(`workbench:draft:admin:member:reset:${id}:p1`)! ), member.id);
-  expect(Object.keys(retry).sort()).toEqual(["fingerprint", "key", "version"]);
+  expect(retry).not.toHaveProperty("values");
+  expect(retry.context).toMatchObject({actor:"admin",path,method:"POST"});
+  expect(typeof retry.fingerprint).toBe("string");
+  expect(typeof retry.key).toBe("string");
   expect(retry.version).toBe(member.version);
   await page.unroute(`**${path}`);
   page.on("request", r => { if (r.method() === "POST" && new URL(r.url()).pathname === path) keys.push(r.headers()["idempotency-key"]!); });
@@ -149,7 +152,7 @@ test("project editor retains long drafts while archive and restore use cancel wi
   await page.getByRole("button", { name: "编辑项目", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "编辑项目", exact: true });
   await dialog.getByLabel("项目简介", { exact: true }).fill("未提交的项目说明草稿");
-  await dialog.getByRole("button", { name: "返回并保留草稿", exact: true }).click();
+  await dialog.getByRole("button", { name: "返回", exact: true }).click();
   await page.getByRole("button", { name: "编辑项目", exact: true }).click();
   await expect(dialog.getByLabel("项目简介", { exact: true })).toHaveValue("未提交的项目说明草稿");
   await page.keyboard.press("Escape");

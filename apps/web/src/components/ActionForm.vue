@@ -96,7 +96,7 @@ const splitTaskDrawer = computed(
 );
 // Standalone evidence and final product acceptance remain page forms.
 const pageFormKind = computed(() =>
-  creationKind.value && !splitTaskDrawer.value
+  creationKind.value
     ? "creation"
     : props.spec.path === "/api/tests"
       ? "test"
@@ -156,7 +156,8 @@ const evidenceTotals = computed(() => {
   };
 });
 const progressDrawer = computed(() => {
-  if (props.spec.path === "/api/updates" || splitTaskDrawer.value) return true;
+  if (creationKind.value) return false;
+  if (props.spec.path === "/api/updates") return true;
   if (!/^\/api\/(tasks|bugs)\/[^/]+\/actions$/.test(props.spec.path))
     return false;
   const action = props.spec.body(props.spec.initial).action;
@@ -189,10 +190,10 @@ const creationSubtitle = computed(() =>
       : "清楚记录复现路径、预期与实际结果。",
 );
 const presentation = computed(() =>
-  pageFormKind.value ? "section" : progressDrawer.value ? ADrawer : AModal,
+  evidencePage.value ? "section" : progressDrawer.value ? ADrawer : AModal,
 );
 const presentationProps = computed(() =>
-  pageFormKind.value
+  evidencePage.value
     ? {
         role: "dialog",
         "aria-modal": "false",
@@ -216,10 +217,11 @@ const presentationProps = computed(() =>
           open: true,
           title: props.spec.title,
           footer: null,
-          closable: false,
+          wrapProps: { "aria-modal": "true" },
+          closable: !!creationKind.value && !busy.value && !otherPending.value && !state.expired,
           maskClosable: false,
           keyboard: !busy.value && !otherPending.value && !state.expired,
-          width: expandedForm.value ? 760 : 540,
+          width: creationKind.value ? 960 : expandedForm.value ? 760 : 540,
           onCancel: cancel,
         },
 );
@@ -361,6 +363,20 @@ const requirementEditor = useRequirementEditor({
 });
 const anyUnknown = computed(() => requirementEditor.ui.unknown || creationUncertain.value);
 const browserDraft = computed(() => canSaveBrowserDraft(props.spec, props.sensitive));
+const fieldsDisabled = computed(() => busy.value || state.expired || otherPending.value || returnConfirmation.value || anyUnknown.value);
+const clearCancel = ref<{ $el: HTMLElement }>(), discardContinue = ref<{ $el: HTMLElement }>(), storageContinue = ref<{ $el: HTMLElement }>();
+let confirmationReturnFocus: HTMLElement | undefined;
+function restoreConfirmationFocus() {
+  if (!active || storageLeaveOpen.value || requirementEditor.ui.clearOpen || requirementEditor.ui.discardOpen) return;
+  if (confirmationReturnFocus?.isConnected) confirmationReturnFocus.focus();
+}
+watch(() => [requirementEditor.ui.clearOpen, requirementEditor.ui.discardOpen, storageLeaveOpen.value], async (open, previous) => {
+  if (open.some((value, index) => value && !previous?.[index]) && document.activeElement instanceof HTMLElement) confirmationReturnFocus = document.activeElement;
+  await nextTick();
+  if (!active) return;
+  const target = storageLeaveOpen.value ? storageContinue : requirementEditor.ui.discardOpen ? discardContinue : requirementEditor.ui.clearOpen ? clearCancel : undefined;
+  target?.value?.$el?.focus();
+});
 const requirementProject = computed(()=>state.projects.find(project=>project.id===props.spec.projectId));
 function persist() {
   if (props.sensitive) return true;
@@ -548,6 +564,13 @@ function popupKeydown(event: KeyboardEvent) {
 }
 function finishPopupKeydown(event: KeyboardEvent) {
   if (event.key !== "Escape") return;
+  if (storageLeaveOpen.value || requirementEditor.ui.clearOpen || requirementEditor.ui.discardOpen) {
+    event.stopPropagation();
+    if (storageLeaveOpen.value) storageLeaveOpen.value = false;
+    else if (requirementEditor.ui.discardOpen) requirementEditor.discard(false);
+    else requirementEditor.ui.clearOpen = false;
+    return;
+  }
   if (returnConfirmation.value || state.expired || otherPending.value) return;
   const popupHandled = popupEscape;
   popupEscape = false;
@@ -555,16 +578,17 @@ function finishPopupKeydown(event: KeyboardEvent) {
     event.stopPropagation();
     return;
   }
-  if (pageFormKind.value) {
+  if (evidencePage.value) {
     event.stopPropagation();
     cancel();
   }
 }
-function trapProgressFocus(event: KeyboardEvent) {
+function trapFormFocus(event: KeyboardEvent) {
   if (
     state.expired ||
     returnConfirmation.value ||
-    !progressDrawer.value ||
+    (!progressDrawer.value && !creationKind.value) ||
+    storageLeaveOpen.value || requirementEditor.ui.clearOpen || requirementEditor.ui.discardOpen ||
     event.key !== "Tab" ||
     event.defaultPrevented
   )
@@ -578,7 +602,7 @@ function trapProgressFocus(event: KeyboardEvent) {
       'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]',
     ),
   ).filter(
-    (element) => element.tabIndex >= 0 && element.getClientRects().length > 0,
+    (element) => element.tabIndex >= 0 && !element.matches(".ant-modal > [tabindex=\"0\"]") && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0,
   );
   const first = controls[0],
     last = controls.at(-1);
@@ -641,40 +665,53 @@ const textRules = (label: string, max: number, required = false) => [
     },
   },
 ];
+function protectUnpersistedInput(event: BeforeUnloadEvent) {
+  if (active && state.member?.id === actor && cancelPresentation.value.showDraftHints && !draftPersisted.value) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+}
 onBeforeRouteLeave(guardNavigation);
 onBeforeRouteUpdate(guardNavigation);
 onMounted(async () => {
   void refreshBugs();
-  document.addEventListener("keydown", trapProgressFocus);
+  document.addEventListener("keydown", trapFormFocus);
+  window.addEventListener("beforeunload", protectUnpersistedInput);
   await nextTick();
   prepareProgressDialog();
   form.value?.$el?.querySelector("input,textarea,button")?.focus();
 });
 onUnmounted(() => {
   active = false;
-  document.removeEventListener("keydown", trapProgressFocus);
+  document.removeEventListener("keydown", trapFormFocus);
+  window.removeEventListener("beforeunload", protectUnpersistedInput);
   // Wait until the inline page/portal has left and its parent controls are
   // visible again before restoring the original trigger.
   void nextTick(() => {
-    if (returnFocus?.isConnected) returnFocus.focus();
+    if (returnFocus?.isConnected && returnFocus.getClientRects().length) returnFocus.focus();
+    else if (creationKind.value) {
+      const heading = document.querySelector<HTMLElement>("#main h1");
+      if (heading) { heading.setAttribute("tabindex", "-1"); heading.focus(); }
+    }
   });
   if (props.sensitive) values.value = {};
 });
 </script>
 <template>
-  <Teleport to="#main" :disabled="!pageFormKind">
+  <Teleport to="#main" :disabled="!evidencePage">
     <component
       :is="presentation"
       v-bind="presentationProps"
       class="mutation-modal workbench-action-modal"
       :class="{
         'workbench-action-modal-compact': !expandedForm,
-        'page-action-form': !!pageFormKind,
+        'page-action-form': evidencePage,
+        'creation-action-modal': !!creationKind,
         'evidence-page-form': evidencePage,
         'requirement-editor': requirementEditor.enabled.value,
       }"
     >
-      <template v-if="pageFormKind">
+      <template v-if="evidencePage">
         <div class="creation-breadcrumb">
           <AButton type="link" :disabled="busy" @click="cancel"
             >← 返回{{
@@ -739,9 +776,7 @@ onUnmounted(() => {
           layout="vertical"
           @finish="submit"
           @finishFailed="validationFailed"
-          :disabled="
-            busy || state.expired || otherPending || returnConfirmation || anyUnknown
-          "
+          :disabled="fieldsDisabled"
           :required-mark="false"
         >
           <div class="mutation-scroll">
@@ -872,7 +907,7 @@ onUnmounted(() => {
                       option-filter-prop="label"
                       :placeholder="'请选择' + f.label"
                       :allow-clear="!f.required"
-                      :disabled="f.disabled"
+                      :disabled="f.disabled || fieldsDisabled"
                       @update:value="values[f.key] = $event ?? ''"
                     />
                     <ACheckbox.Group
@@ -953,7 +988,7 @@ onUnmounted(() => {
                       </div>
                       <AButton
                         :disabled="
-                          busy || values[f.key].length >= CHECK_ENTRY_LIMIT
+                          fieldsDisabled || values[f.key].length >= CHECK_ENTRY_LIMIT
                         "
                         @click="
                           values[f.key].push({
@@ -1046,7 +1081,7 @@ onUnmounted(() => {
                       "
                       :maxlength="f.max ?? 200"
                       :autocomplete="sensitive ? 'off' : undefined"
-                      :disabled="f.disabled"
+                      :disabled="f.disabled || fieldsDisabled"
                     />
                     <small v-if="f.help" class="muted">{{ f.help }}</small>
                     <div v-if="f.key === 'bugId' && spec.relatedBugContext" class="form-actions">
@@ -1130,7 +1165,7 @@ onUnmounted(() => {
               cancelPresentation.label
             }}</AButton>
             <AButton v-if="requirementEditor.enabled.value" :disabled="busy||otherPending||anyUnknown" @click="requirementEditor.ui.clearOpen=true">{{ spec.requirementEditor?.mode==='create'?'清空':'清空未保存修改' }}</AButton>
-            <AButton v-if="browserDraft" :disabled="busy||otherPending||state.expired||anyUnknown" @click="saveBrowserDraft">保存为草稿</AButton>
+            <AButton v-if="browserDraft" class="mutation-local-draft" :disabled="busy||otherPending||state.expired||anyUnknown" @click="saveBrowserDraft">保存为草稿</AButton>
             <AButton
               v-if="!anyUnknown"
               class="mutation-submit"
@@ -1150,9 +1185,8 @@ onUnmounted(() => {
               }}</AButton
             >
             <p v-if="localDraftNotice" role="status" class="local-draft-feedback">{{ localDraftNotice }}</p>
-            <span v-if="browserDraft" class="muted">仅保存在当前浏览器，图片不随草稿保存。</span>
             <span v-if="cancelPresentation.showDraftHints" class="muted mutation-draft-caption"
-              >{{ !draftPersisted?'浏览器暂存失败，当前页面内容尚在，离开可能丢失。':requirementEditor.enabled.value?'文字已在本账号浏览器自动暂存；待上传图片不随刷新恢复。':'普通输入已在当前账号浏览器自动暂存，尚未提交。' }}</span
+              >{{ !draftPersisted?'浏览器暂存失败，当前页面内容尚在，离开可能丢失。':browserDraft?'仅保存在当前浏览器，图片不随草稿保存。':spec.requirementEditor?.mode==='create'?'保存草稿将创建服务器需求；文字会暂存本浏览器，图片不随刷新恢复。':'普通输入已在当前账号浏览器自动暂存，尚未提交。' }}</span
             >
           </div>
         </AForm>
@@ -1305,17 +1339,17 @@ onUnmounted(() => {
       </div>
     </component>
   </Teleport>
-  <AModal :open="storageLeaveOpen" title="本地暂存失败" :z-index="1300" :mask-closable="false" @cancel="storageLeaveOpen=false">
+  <AModal :focus-trigger-after-close="false" :after-close="restoreConfirmationFocus" :open="storageLeaveOpen" title="本地暂存失败" :z-index="1300" :mask-closable="false" @cancel="storageLeaveOpen=false">
     <p>未提交文字和待上传图片仅保留在本页，返回后可能丢失。已保存的服务器对象不会被删除，原有重试绑定不会被清除。</p>
-    <template #footer><AButton @click="storageLeaveOpen=false">继续填写</AButton><AButton danger @click="leaveWithoutDraft">放弃本页内容并返回</AButton></template>
+    <template #footer><AButton ref="storageContinue" @click="storageLeaveOpen=false">继续填写</AButton><AButton danger @click="leaveWithoutDraft">放弃本页内容并返回</AButton></template>
   </AModal>
-  <AModal :open="requirementEditor.ui.clearOpen" title="清空未保存内容" :mask-closable="false" :keyboard="!busy" @cancel="requirementEditor.ui.clearOpen=false">
+  <AModal :focus-trigger-after-close="false" :after-close="restoreConfirmationFocus" :z-index="1200" :open="requirementEditor.ui.clearOpen" title="清空未保存内容" :mask-closable="false" :keyboard="!busy" @cancel="requirementEditor.ui.clearOpen=false">
     <p>{{ spec.requirementEditor?.mode==='create'?'将恢复空白初始内容，并移除本次待上传图片。':'将放弃未保存修改，恢复本次打开时的内容，并移除本次待上传图片。' }}服务端对象和已保存附件不受影响。</p>
-    <template #footer><AButton :disabled="busy" @click="requirementEditor.ui.clearOpen=false">取消</AButton><AButton danger :disabled="busy" @click="requirementEditor.clear">确认清空</AButton></template>
+    <template #footer><AButton ref="clearCancel" :disabled="busy" @click="requirementEditor.ui.clearOpen=false">取消</AButton><AButton danger :disabled="busy" @click="requirementEditor.clear">确认清空</AButton></template>
   </AModal>
-  <AModal :open="requirementEditor.ui.discardOpen" title="放弃待上传图片？" :mask-closable="false" :keyboard="!busy" @cancel="requirementEditor.discard(false)">
+  <AModal :focus-trigger-after-close="false" :after-close="restoreConfirmationFocus" :z-index="1200" :open="requirementEditor.ui.discardOpen" title="放弃待上传图片？" :mask-closable="false" :keyboard="!busy" @cancel="requirementEditor.discard(false)">
     <p>文字草稿或已保存需求会保留；尚未上传的图片仅在当前内存中，离开后无法恢复。此操作不会删除已保存附件。</p>
-    <template #footer><AButton @click="requirementEditor.discard(false)">继续填写</AButton><AButton danger @click="requirementEditor.discard(true)">放弃待上传图片并离开</AButton></template>
+    <template #footer><AButton ref="discardContinue" @click="requirementEditor.discard(false)">继续填写</AButton><AButton danger @click="requirementEditor.discard(true)">放弃待上传图片并离开</AButton></template>
   </AModal>
   <AModal
     :open="returnConfirmation"
@@ -1958,4 +1992,37 @@ onUnmounted(() => {
 .requirement-extra-details>summary{padding:18px 0;font-size:15px;font-weight:600;cursor:pointer}.requirement-extra-details>summary:focus-visible{outline:2px solid #245bdb;outline-offset:3px}
 .requirement-editor .mutation-footer{flex-wrap:wrap}.requirement-delivery{padding:24px;min-width:0;background:#fff;border:1px solid #e4e9f1;border-radius:8px}.requirement-delivery-actions{display:flex;gap:10px;flex-wrap:wrap}.requirement-pending-command{padding:16px 24px;background:#fff}.requirement-pending-command>.ant-btn{margin-top:12px}
 @media(max-width:600px){.requirement-editor .requirement-main-section{padding:16px}.requirement-editor .requirement-main-section .ant-input[id=field-title]{font-size:20px}.requirement-editor .requirement-meta-section{padding:16px;gap:14px}.requirement-editor .requirement-extra-details{padding-inline:16px}.requirement-delivery{padding:16px}.requirement-readonly{flex-basis:100%}}
+</style>
+
+<style>
+/* Creation content keeps its existing sections inside a real bounded Modal. */
+.creation-action-modal .mutation-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: min(720px, calc(100dvh - 154px));
+  min-height: 0;
+}
+.creation-action-modal .mutation-content > .requirement-pending-command { grid-area: 1 / 1 / 2 / 3; }
+.creation-action-modal .mutation-content > .ant-form { grid-area: 2 / 1 / 3 / 2; height: 100%; max-height: none; min-width: 0; min-height: 0; }
+.creation-action-modal .creation-guide { grid-area: 2 / 2 / 3 / 3; min-width: 0; overflow-y: auto; max-height: 100%; padding: 22px 16px; background: #f8faff; border-left: 1px solid #e4e9f1; }
+.creation-action-modal .creation-guide h2 { font-size: 15px; margin: 0 0 16px; }
+.creation-action-modal .creation-guide ol { padding-left: 20px; margin: 0; }
+.creation-action-modal .creation-guide li { margin-bottom: 18px; line-height: 1.7; }
+.creation-action-modal .creation-guide p { font-size: 12px; color: #65738b; }
+.creation-action-modal.requirement-editor .mutation-content { display: flex; flex-direction: column; height: min(780px, calc(100dvh - 154px)); }
+.creation-action-modal.requirement-editor .mutation-content > .ant-form { flex: 1; min-height: 0; }
+.creation-action-modal.requirement-editor .requirement-delivery { overflow-y: auto; max-height: 100%; }
+.creation-action-modal .mutation-scroll { flex: 1; }
+.creation-action-modal .mutation-footer { flex-shrink: 0; }
+.mutation-local-draft { order: 2; }
+.local-draft-feedback { margin: 0; width: 100%; font-size: 12px; color: #245bdb; }
+@media (max-width: 850px) {
+  .creation-action-modal .mutation-content { grid-template-columns: minmax(0, 1fr); }
+  .creation-action-modal .mutation-content > .ant-form { grid-column: 1; }
+  .creation-action-modal .creation-guide { display: none; }
+}
+@media (max-width: 600px) {
+  .creation-action-modal .mutation-content, .creation-action-modal.requirement-editor .mutation-content { height: calc(100dvh - 101px); }
+}
 </style>
