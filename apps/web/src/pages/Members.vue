@@ -17,6 +17,8 @@ import { state, zh, type Member, type Project } from "../state";
 import { allPages, request, type Page } from "../api/client";
 import { field, type FormSpec } from "../forms";
 import { useReadScope } from "../composables/readScope";
+import { decodeFilters, encodeFilters, type FilterValues } from "../composables/listFilters";
+import FilterPanel from "../components/FilterPanel.vue";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
 import TicketInvitation from "../components/TicketInvitation.vue";
@@ -32,7 +34,18 @@ function projectFromQuery(value: unknown): string {
 }
 const auditMember = ref("");
 const pageHeading = ref<HTMLElement>();
-const search = ref("");
+const filterSchema = {
+  keyword: { key: "filterKeyword", default: "", max: 200 },
+  active: { key: "filterActive", default: "", values: ["", "true", "false"] },
+};
+const filterDefaults = decodeFilters({}, filterSchema);
+const memberFilters = computed(() => decodeFilters(route.query, filterSchema));
+const search = computed(() => memberFilters.value.keyword);
+const active = computed(() => memberFilters.value.active);
+function applyMemberFilters(next: FilterValues) {
+  if (JSON.stringify(next) === JSON.stringify(memberFilters.value)) void load();
+  else void router.push({ path: route.path, query: encodeFilters(route.query, next, filterSchema), hash: route.hash });
+}
 const roleContext = computed(
   () =>
     typeof route.query.projectId === "string" &&
@@ -68,7 +81,6 @@ const columns = computed(() => [
 ]);
 const members = ref<any[]>([]),
   projectId = ref(projectFromQuery(route.query.projectId)),
-  active = ref(""),
   cursor = ref<string | null>(null),
   error = ref(""),
   busy = ref(false),
@@ -87,7 +99,7 @@ let submittedLogin = "",
 const project = computed(() =>
   state.projects.find((p) => p.id === projectId.value),
 );
-const scope = computed(() => JSON.stringify([projectId.value, active.value]));
+const scope = computed(() => JSON.stringify([state.member?.id, projectId.value, active.value, search.value]));
 const reads = useReadScope(() => scope.value);
 const permissionReads = useReadScope(() => String(state.member?.id ?? ""));
 const writesReady = computed(
@@ -175,11 +187,12 @@ function selectProject(id: unknown) {
   if (state.mutationPending) return;
   router.push({
     path: "/members",
-    query: { projectId: typeof id === "string" ? id : "" },
+    query: { ...route.query, projectId: typeof id === "string" ? id : "" },
   });
 }
 watch(
-  [projectId, active],
+  // Local keywords reset the page pool without entering the API query.
+  [projectId, active, search],
   () => {
     if (directoryReady.value) void load();
     else if (!permissionsRefreshing.value && !directoryError.value)
@@ -430,16 +443,7 @@ async function closeTicket() {
             <h2>{{ roleContext ? "成员与项目岗位" : "平台成员目录" }}</h2>
             <span>已加载 {{ members.length }} 位成员</span>
           </div>
-          <div class="filters">
-            <div class="member-search">
-              <label for="member-search">搜索已加载成员</label
-              ><AInput
-                id="member-search"
-                v-model:value="search"
-                placeholder="搜索显示名"
-                allow-clear
-              />
-            </div>
+          <div class="filters member-navigation">
             <div>
               <label for="member-project">授权项目</label
               ><ASelect
@@ -452,14 +456,25 @@ async function closeTicket() {
                 "
               />
             </div>
+
+            <AButton
+              :disabled="permissionsRefreshing || busy || state.mutationPending"
+              @click="refreshPermissions()"
+              >刷新权限</AButton>
+          </div>
+          <FilterPanel :model-value="memberFilters" :defaults="filterDefaults" :scope-key="JSON.stringify([state.member?.id, projectId])" :disabled="state.mutationPending" label="成员列表筛选" @apply="applyMemberFilters" v-slot="{ draft }">
+          <div class="filters">
+            <div class="member-search">
+              <label for="member-search">搜索已加载成员</label><AInput id="member-search" v-model:value="draft.keyword" placeholder="搜索显示名" :maxlength="200" allow-clear />
+            </div>
             <div>
               <label for="member-active">成员状态</label
               ><ASelect
                 id="member-active"
-                :value="active"
+                :value="draft.active"
                 :disabled="state.mutationPending"
                 @update:value="
-                  active = typeof $event === 'string' ? $event : ''
+                  draft.active = typeof $event === 'string' ? $event : ''
                 "
                 allow-clear
                 :options="[
@@ -469,12 +484,9 @@ async function closeTicket() {
                 ]"
               />
             </div>
-            <AButton
-              :disabled="permissionsRefreshing || busy || state.mutationPending"
-              @click="refreshPermissions()"
-              >刷新权限</AButton
-            >
           </div>
+          <p class="filter-note">显示名关键词仅筛选当前已加载成员，加载更多后继续筛选。</p>
+          </FilterPanel>
           <p v-if="!state.member?.isAdmin" class="panel-body muted">
             你可查看安全成员目录，管理动作仅向管理员开放。
           </p>

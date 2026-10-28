@@ -14,6 +14,8 @@ import AInput from "ant-design-vue/es/input";
 import { request, type Page } from "../api/client";
 import { state, objectPath, zh } from "../state";
 import { useReadScope } from "../composables/readScope";
+import { decodeFilters, encodeFilters, workFilterSchema, type FilterValues } from "../composables/listFilters";
+import FilterPanel from "../components/FilterPanel.vue";
 import AButton from "ant-design-vue/es/button";
 import ASelect from "ant-design-vue/es/select";
 import ATag from "ant-design-vue/es/tag";
@@ -22,11 +24,7 @@ import WorkList from "../components/WorkList.vue";
 const items = ref<any[]>([]),
   cursor = ref<string | null>(null),
   busy = ref(false),
-  error = ref(""),
-  kind = ref(""),
-  status = ref(""),
-  blocked = ref(""),
-  owner = ref("");
+  error = ref("");
 const route = useRoute(),
   router = useRouter();
 const tab = computed(() =>
@@ -34,8 +32,24 @@ const tab = computed(() =>
     ? String(route.query.workTab)
     : "all",
 );
-const query = ref(""),
-  progressOpen = ref(false);
+const progressOpen = ref(false);
+const filterSchema = {
+  ...workFilterSchema,
+  status: { ...workFilterSchema.status, values: ["", "pending", "ready", "active", "fixing", "pending_check", "pending_verify", "pending_acceptance"] },
+  keyword: { key: "filterKeyword", default: "", max: 200 },
+};
+const filterDefaults = decodeFilters({}, filterSchema);
+const workFilters = computed(() => decodeFilters(route.query, filterSchema));
+const kind = computed(() => workFilters.value.kind);
+const status = computed(() => workFilters.value.status);
+const owner = computed(() => workFilters.value.owner);
+const blocked = computed(() => workFilters.value.blocked);
+const query = computed(() => workFilters.value.keyword);
+const filterScope = computed(() => JSON.stringify([state.member?.id, state.projectId, tab.value]));
+function applyWorkFilters(next: FilterValues) {
+  if (JSON.stringify(next) === JSON.stringify(workFilters.value)) void load();
+  else void router.push({ path: route.path, query: encodeFilters(route.query, next, filterSchema), hash: route.hash });
+}
 const owned = computed(() =>
   items.value.filter((x) => x.ownerId === state.member?.id),
 );
@@ -99,8 +113,15 @@ const attention = computed(() =>
 const progressRows = ref<any[]>([]),
   progressCursor = ref<string | null>(null),
   progressBusy = ref(false),
-  progressError = ref(""),
-  progressSearch = ref("");
+  progressError = ref("");
+const progressSchema = { keyword: { key: "progressQ", default: "", max: 200 } };
+const progressDefaults = { keyword: "" };
+const progressFilters = computed(() => decodeFilters(route.query, progressSchema));
+const progressSearch = computed(() => progressFilters.value.keyword);
+function applyProgressFilters(next: FilterValues) {
+  if (next.keyword === progressSearch.value) void loadProgress();
+  else void router.push({ path: route.path, query: encodeFilters(route.query, next, progressSchema), hash: route.hash });
+}
 const progressItems = computed(() =>
   progressRows.value.filter(
     (x) =>
@@ -111,7 +132,7 @@ const progressItems = computed(() =>
       ),
   ),
 );
-const progressReads = useReadScope(() => JSON.stringify([progressOpen.value, state.projectId, progressSearch.value]));
+const progressReads = useReadScope(() => JSON.stringify([state.member?.id, progressOpen.value, state.projectId, progressSearch.value]));
 async function loadProgress(more = false) {
   if (!progressOpen.value) return;
   const read = progressReads.begin(more);
@@ -135,7 +156,7 @@ async function loadProgress(more = false) {
     read.finish(() => { progressBusy.value = false; });
   }
 }
-watch(() => [progressOpen.value, state.projectId, progressSearch.value], () => loadProgress(), { immediate: true });
+watch(() => [state.member?.id, progressOpen.value, state.projectId, progressSearch.value], () => loadProgress(), { immediate: true });
 const stats = computed(() => [
   {
     name: "我负责的未完成工作",
@@ -178,11 +199,13 @@ watch(
 );
 const reads = useReadScope(() =>
   JSON.stringify([
+    state.member?.id,
     state.projectId,
     kind.value,
     status.value,
     blocked.value,
     owner.value,
+    query.value,
   ]),
 );
 async function load(more = false) {
@@ -219,7 +242,8 @@ async function load(more = false) {
   }
 }
 watch(
-  () => [state.projectId, kind.value, status.value, blocked.value, owner.value],
+  // Local keywords still reset paging; the request intentionally omits q.
+  () => [state.member?.id, state.projectId, kind.value, status.value, blocked.value, owner.value, query.value],
   () => load(),
   { immediate: true },
 );
@@ -270,14 +294,20 @@ watch(
           ><ReloadOutlined aria-hidden="true"
         /></AButton>
       </div>
+      <div class="filters mobile-project-filter">
+        <div>
+          <label for="work-project">工作项目</label><ASelect id="work-project" :value="state.projectId" @update:value="state.projectId = typeof $event === 'string' ? $event : ''" allow-clear :options="[{ value: '', label: '全部项目' }, ...state.projects.map((p) => ({ value: p.id, label: p.name }))]" />
+        </div>
+      </div>
+      <FilterPanel :model-value="workFilters" :defaults="filterDefaults" :scope-key="filterScope" label="我的工作筛选" @apply="applyWorkFilters" v-slot="{ draft }">
       <div class="filters">
         <div>
           <label for="work-kind">工作类型</label
           ><ASelect
             id="work-kind"
             aria-label="工作类型"
-            :value="kind"
-            @update:value="kind = typeof $event === 'string' ? $event : ''"
+            :value="draft.kind"
+            @update:value="draft.kind = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部类型' },
@@ -292,8 +322,8 @@ watch(
           ><ASelect
             id="work-owner"
             aria-label="负责人"
-            :value="owner"
-            @update:value="owner = typeof $event === 'string' ? $event : ''"
+            :value="draft.owner"
+            @update:value="draft.owner = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部负责人' },
@@ -309,8 +339,8 @@ watch(
           ><ASelect
             id="work-status"
             aria-label="状态"
-            :value="status"
-            @update:value="status = typeof $event === 'string' ? $event : ''"
+            :value="draft.status"
+            @update:value="draft.status = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部状态' },
@@ -331,8 +361,8 @@ watch(
           ><ASelect
             id="work-blocked"
             aria-label="阻塞"
-            :value="blocked"
-            @update:value="blocked = typeof $event === 'string' ? $event : ''"
+            :value="draft.blocked"
+            @update:value="draft.blocked = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部' },
@@ -341,34 +371,22 @@ watch(
             ]"
           />
         </div>
-        <div class="mobile-project-filter">
-          <label for="work-project">工作项目</label
-          ><ASelect
-            id="work-project"
-            :value="state.projectId"
-            @update:value="
-              state.projectId = typeof $event === 'string' ? $event : ''
-            "
-            allow-clear
-            :options="[
-              { value: '', label: '全部项目' },
-              ...state.projects.map((p) => ({ value: p.id, label: p.name })),
-            ]"
-          />
-        </div>
       </div>
       <div class="work-filter-extra">
         <AInput
-          v-model:value="query"
+          v-model:value="draft.keyword"
           aria-label="筛选已加载工作"
           placeholder="筛选已加载的编号或工作标题"
           allow-clear
+          :maxlength="200"
         /><span class="loaded-note"
           >当前筛选已加载 {{ items.length }} 项{{
             cursor ? "，还有更多" : ""
           }}</span
         >
       </div>
+      <p class="filter-note">关键词仅筛选当前已加载事项；继续加载会在相同条件下筛选更多事项。</p>
+      </FilterPanel>
       <p v-if="error" class="error" role="alert">
         {{ error }} <AButton @click="load()">重试加载</AButton>
       </p>
@@ -457,7 +475,9 @@ watch(
     :width="540"
   >
     <p>包含已完成事项，可补记当天或过去的实际贡献；文字不会自动改变状态。</p>
-    <AInput v-model:value="progressSearch" aria-label="搜索可补记事项" placeholder="按标题或编号查找，包含已完成工作" :maxlength="200" />
+    <FilterPanel :model-value="progressFilters" :defaults="progressDefaults" :scope-key="JSON.stringify([state.member?.id, state.projectId, progressOpen])" label="工作更新事项筛选" @apply="applyProgressFilters" v-slot="{ draft }">
+      <AInput v-model:value="draft.keyword" aria-label="搜索可补记事项" placeholder="按标题或编号查找，包含已完成工作" :maxlength="200" allow-clear />
+    </FilterPanel>
     <p v-if="progressBusy" role="status">正在读取可补记事项…</p>
     <AAlert v-if="progressError" type="error" role="alert" show-icon>
       <template #message>{{ progressError }} <AButton @click="loadProgress()">重试读取事项</AButton></template>

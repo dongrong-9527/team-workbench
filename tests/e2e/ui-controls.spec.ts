@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.js";
-import { login, selectOption, expectSelectedOption } from "./helpers.js";
+import { login, selectOption, expectSelectedOption, openRequirementDetails, openFilters, applyFilters } from "./helpers.js";
 
 test("Ant workbench controls preserve keyboard filters, clearing and report navigation", async ({
   page,
@@ -8,41 +8,31 @@ test("Ant workbench controls preserve keyboard filters, clearing and report navi
   await expect(
     page.getByRole("button", { name: "刷新", exact: true }),
   ).toHaveClass(/ant-btn/);
+  const filters = await openFilters(page, "我的工作筛选");
   const kind = page.getByRole("combobox", { name: "工作类型", exact: true });
   await expect(kind).toHaveAttribute("id", "work-kind");
   await kind.focus();
   await kind.press("ArrowDown");
-  const filtered = page.waitForResponse((r) =>
-    r.url().includes("/api/my-work?kind=task"),
-  );
   await kind.press("Enter");
+  await expect(filters.locator(".filters .ant-select").first()).toContainText("任务");
+  const filtered = page.waitForResponse((r) => r.url().includes("/api/my-work?kind=task"));
+  await applyFilters(page, "我的工作筛选");
   await filtered;
-  await expect(page.locator(".filters .ant-select").first()).toContainText(
-    "任务",
-  );
-  const keyboardReset = page.waitForResponse((r) =>
-    r.url().endsWith("/api/my-work?"),
-  );
+  await openFilters(page, "我的工作筛选");
   await kind.press("ArrowUp");
   await kind.press("Enter");
+  await expect(filters.locator(".filters .ant-select").first()).toContainText("全部类型");
+  const keyboardReset = page.waitForResponse((r) => r.url().endsWith("/api/my-work?"));
+  await applyFilters(page, "我的工作筛选");
   await keyboardReset;
-  await expect(page.locator(".filters .ant-select").first()).toContainText(
-    "全部类型",
-  );
+  await openFilters(page, "我的工作筛选");
   await selectOption(page, "工作类型", { value: "task", label: "任务" });
-  const cleared = page.waitForResponse((r) =>
-    r.url().endsWith("/api/my-work?"),
-  );
-  await page.locator(".filters .ant-select").first().hover();
-  await page
-    .locator(".filters .ant-select")
-    .first()
-    .locator(".ant-select-clear")
-    .click();
+  await filters.locator(".filters .ant-select").first().hover();
+  await filters.locator(".filters .ant-select").first().locator(".ant-select-clear").click();
+  await expect(filters.locator(".filters .ant-select").first()).toContainText("全部类型");
+  const cleared = page.waitForResponse((r) => r.url().endsWith("/api/my-work?"));
+  await applyFilters(page, "我的工作筛选");
   await cleared;
-  await expect(page.locator(".filters .ant-select").first()).toContainText(
-    "全部类型",
-  );
   await page.getByRole("link", { name: /生成今日日报/ }).click();
   await expect(page).toHaveURL(/\/reports$/);
 });
@@ -57,10 +47,11 @@ test("Ant project select and global search retain server scope and query semanti
   await project.press("ArrowDown");
   await project.press("Escape");
   await expect(project).toBeFocused();
+  await page.getByRole("button", { name: "全局搜索", exact: true }).click();
   await page.getByLabel("搜索编号或标题").fill("字段校验");
   await expect(page.getByLabel("搜索编号或标题")).toHaveClass(/ant-input/);
-  await page.getByRole("button", { name: "搜索", exact: true }).click();
-  await expect(page).toHaveURL(/\/projects\?q=/);
+  await applyFilters(page, "项目工作筛选");
+  await expect(page).toHaveURL(/\/projects\?work=1&q=/);
   expect(new URL(page.url()).searchParams.get("q")).toBe("字段校验");
 });
 
@@ -123,13 +114,16 @@ test("all scope filters send existing string values and clear back to an unfilte
     { name: "状态", value: "active", label: "进行中", key: "state" },
     { name: "阻塞", value: "false", label: "未阻塞", key: "blocked" },
   ]) {
+    if (filter.key !== "projectId") await openFilters(page, "我的工作筛选");
     const response = page.waitForResponse(
       (r) =>
         new URL(r.url()).pathname === "/api/my-work" &&
         new URL(r.url()).searchParams.get(filter.key) === filter.value,
     );
     await selectOption(page, filter.name, filter);
+    if (filter.key !== "projectId") await applyFilters(page, "我的工作筛选");
     expect((await response).status()).toBe(200);
+    if (filter.key !== "projectId") await openFilters(page, "我的工作筛选");
     await expectSelectedOption(page, filter.name, filter);
     const input = page.getByRole("combobox", {
       name: filter.name,
@@ -145,6 +139,7 @@ test("all scope filters send existing string values and clear back to an unfilte
     );
     await container.hover();
     await container.locator(".ant-select-clear").click();
+    if (filter.key !== "projectId") await applyFilters(page, "我的工作筛选");
     expect((await reset).status()).toBe(200);
   }
   await expect(
@@ -244,12 +239,13 @@ test("Ant auth and definition rules block short passwords and missing custom fie
   await login(page, "product");
   await page.goto("/projects/p1");
   await page.getByRole("button", { name: "新建需求", exact: true }).click();
-  await page.getByRole("button", { name: "确认新建需求" }).click();
+  await openRequirementDetails(page);
+  await page.getByRole("button", { name: "保存草稿" }).click();
   await page.getByRole("button", { name: "添加条目", exact: true }).click();
-  await page.getByRole("button", { name: "确认新建需求" }).click();
+  await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByText("请填写条目说明", { exact: true })).toBeVisible();
   await page.getByLabel("必需条目", { exact: true }).uncheck();
-  await page.getByRole("button", { name: "确认新建需求" }).click();
+  await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByText("请填写排除原因", { exact: true })).toBeVisible();
   await expect(page.getByLabel("条目编号", { exact: true })).toHaveAttribute(
     "maxlength",
@@ -338,6 +334,7 @@ test("nested supplementary-character bounds block requests and restored drafts u
   await login(page, "product");
   await page.goto("/projects/p1");
   await page.getByRole("button", { name: "新建需求", exact: true }).click();
+  await openRequirementDetails(page);
   await page.getByLabel("标题", { exact: true }).fill("嵌套字符边界");
   await page.getByRole("button", { name: "添加条目", exact: true }).click();
   await page.getByLabel("来源说明", { exact: true }).fill("合成评审");
@@ -357,7 +354,7 @@ test("nested supplementary-character bounds block requests and restored drafts u
     await route.continue();
   });
   await page.getByLabel("条目说明", { exact: true }).fill("😀".repeat(1001));
-  await page.getByRole("button", { name: "确认新建需求", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect(
     page.getByText("条目说明最多 2000 个字符", { exact: true }),
   ).toBeVisible();
@@ -377,7 +374,8 @@ test("nested supplementary-character bounds block requests and restored drafts u
     localStorage.setItem(key, JSON.stringify(draft));
   });
   await page.getByRole("button", { name: "新建需求", exact: true }).click();
-  await page.getByRole("button", { name: "确认新建需求", exact: true }).click();
+  await openRequirementDetails(page);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect(
     page.getByText("条目编号最多 128 个字符", { exact: true }),
   ).toBeVisible();
@@ -391,7 +389,7 @@ test("nested supplementary-character bounds block requests and restored drafts u
     (r) =>
       r.url().endsWith("/api/requirements") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "确认新建需求", exact: true }).click();
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect.poll(() => requests.length).toBe(1);
   await expect(
     page.getByRole("button", { name: "添加条目", exact: true }),
@@ -471,13 +469,16 @@ test("project and member filters clear without changing payload types", async ({
     { name: "状态", value: "active", label: "进行中", key: "state" },
     { name: "阻塞", value: "false", label: "未阻塞", key: "blocked" },
   ]) {
+    await openFilters(page, "项目工作筛选");
     const selected = page.waitForResponse(
       (r) =>
         new URL(r.url()).pathname === "/api/objects" &&
         new URL(r.url()).searchParams.get(filter.key) === filter.value,
     );
     await selectOption(page, filter.name, filter);
+    await applyFilters(page, "项目工作筛选");
     expect((await selected).status()).toBe(200);
+    await openFilters(page, "项目工作筛选");
     const container = page
       .getByRole("combobox", { name: filter.name, exact: true })
       .locator(
@@ -490,6 +491,7 @@ test("project and member filters clear without changing payload types", async ({
     );
     await container.hover();
     await container.locator(".ant-select-clear").click();
+    await applyFilters(page, "项目工作筛选");
     expect((await cleared).status()).toBe(200);
   }
   if (process.env.WORKBENCH_UI_SCREENSHOTS) {
@@ -510,10 +512,13 @@ test("project and member filters clear without changing payload types", async ({
     await page.setViewportSize({ width: 1440, height: 1000 });
   }
   await page.goto("/members");
+  await openFilters(page, "成员列表筛选");
   await selectOption(page, "成员状态", { value: "false", label: "已停用" });
+  await applyFilters(page, "成员列表筛选");
   await expect(
     page.getByRole("row").filter({ hasText: "叶归档" }),
   ).toBeVisible();
+  await openFilters(page, "成员列表筛选");
   const container = page
     .getByRole("combobox", { name: "成员状态", exact: true })
     .locator(
@@ -526,6 +531,7 @@ test("project and member filters clear without changing payload types", async ({
   );
   await container.hover();
   await container.locator(".ant-select-clear").click();
+  await applyFilters(page, "成员列表筛选");
   expect((await cleared).status()).toBe(200);
   await expect(
     page.getByRole("row").filter({ hasText: "陈开发" }),

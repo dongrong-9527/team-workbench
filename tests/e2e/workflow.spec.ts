@@ -66,12 +66,12 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
   await page
     .getByLabel("条目说明", { exact: true })
     .fill("提交无效值时给出提示");
-  await submit(page, "确认新建需求");
+  await submit(page, "保存草稿");
   await expect(page).toHaveURL(/\/requirement\//);
   const reqUrl = page.url(),
     reqId = reqUrl.split("/").at(-1)!;
   await action(page, "细化内容");
-  await submit(page, "确认细化内容");
+  await submit(page, "保存修改");
   await action(page, "确认可执行");
   await submit(page, "确认确认可执行");
   await action(page, "拆分任务");
@@ -195,7 +195,7 @@ test("task_10 full requirement task Bug testing acceptance and behavioral revisi
     .getByLabel("提交无效值时给出提示", { exact: true })
     .check();
   await page.getByLabel("我已核对影响范围，相关工作可能退回重新检查").check();
-  await submit(page, "确认确认需求修订");
+  await submit(page, "保存修改");
   await expect(page.getByText(/需求修订 R2/)).toBeVisible();
   await page.goto(taskUrl);
   await expect(page.getByText(/R2 修订影响记录；当前任务待处理，已有历史记录保留/)).toBeVisible();

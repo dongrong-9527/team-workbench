@@ -1,6 +1,6 @@
 # Requirement Editor and Collapsible Filters Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement inline task-by-task; one independent whole-change reviewer at the end. Steps use checkbox tracking. User already approved the complete design and said 开始修改, so no repeated plan/execution/deployment approval.
+> **For agentic workers:** Task1/2 use superpowers:executing-plans inline; Task3 is an independent file-isolated domain delegated under superpowers:dispatching-parallel-agents, with browser windows coordinated serially. One independent whole-change reviewer remains at the end. Steps use checkbox tracking. User already approved the complete design and said 开始修改, so no repeated plan/execution/deployment approval.
 
 **Goal:** Deliver the confirmed requirement layout, optional prose expectation, reliable post-save image handoff, and staged collapsed filters without changing business rules or deploying.
 

@@ -2,6 +2,8 @@ import { test, expect } from "./fixtures.js";
 import {
   expectSelectedOption,
   selectOption,
+  openFilters,
+  applyFilters,
   login,
   action,
   submit,
@@ -291,7 +293,9 @@ test("task_10 read-only viewer cross-project reads, 500 recovery, real paginatio
   await expect(
     page.getByRole("button", { name: "加载更多", exact: true }),
   ).toHaveCount(0);
+  await openFilters(page, "项目工作筛选");
   await selectOption(page, "负责人", { value: "dev", label: "陈开发" });
+  await applyFilters(page, "项目工作筛选");
   await expect(page.locator(".work-row")).toHaveCount(1);
   await page.route("**/api/my-work?*", (route) =>
     route.fulfill({

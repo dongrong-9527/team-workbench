@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.js";
-import { login, selectOption } from "./helpers.js";
+import { login, selectOption, openFilters, applyFilters } from "./helpers.js";
 import { api, pendingAcceptance } from "./audit-helpers.js";
 
 test("management-visible unassigned associations do not claim the viewer has the execution role", async ({
@@ -134,46 +134,32 @@ test("directory separates matching active and archived projects and clears every
     expectedVersion: archived.version,
   });
   await page.goto("/projects?view=all");
-  await page
-    .getByRole("textbox", { name: "搜索项目名称", exact: true })
-    .fill("distinct-description-layout");
+  await openFilters(page, "项目目录筛选");
+  await page.getByRole("textbox", { name: "搜索项目名称", exact: true }).fill("distinct-description-layout");
+  await applyFilters(page, "项目目录筛选");
   const live = page.getByRole("region", { name: "进行中项目", exact: true });
   const history = page.getByRole("region", { name: "已归档项目", exact: true });
-  await expect(
-    live.getByRole("link", { name: "合成分区活跃 ↗", exact: true }),
-  ).toBeVisible();
+  await expect(live.getByRole("link", { name: "合成分区活跃 ↗", exact: true })).toBeVisible();
+  await openFilters(page, "项目目录筛选");
   await page.getByRole("button", { name: "已归档", exact: true }).click();
+  await applyFilters(page, "项目目录筛选");
   await expect(live).toHaveCount(0);
-  await expect(
-    history.getByRole("link", { name: "合成分区归档 ↗", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("textbox", { name: "搜索项目名称", exact: true })
-    .fill("does-not-match-any-project");
-  await expect(
-    page.getByText("没有符合条件的项目", { exact: false }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "清除项目筛选", exact: true }).click();
-  await expect(
-    page.getByRole("textbox", { name: "搜索项目名称", exact: true }),
-  ).toHaveValue("");
-  await expect(
-    live.getByRole("link", { name: "合成分区活跃 ↗", exact: true }),
-  ).toBeVisible();
-  await page.screenshot({
-    path: info.outputPath("directory-all-desktop.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
-  await page
-    .getByRole("textbox", { name: "搜索项目名称", exact: true })
-    .fill(active.id);
+  await expect(history.getByRole("link", { name: "合成分区归档 ↗", exact: true })).toBeVisible();
+  await openFilters(page, "项目目录筛选");
+  await page.getByRole("textbox", { name: "搜索项目名称", exact: true }).fill("does-not-match-any-project");
+  await applyFilters(page, "项目目录筛选");
+  await expect(page.getByText("没有符合条件的项目", { exact: false })).toBeVisible();
+  const panel = await openFilters(page, "项目目录筛选");
+  await panel.getByRole("button", { name: "重置", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "搜索项目名称", exact: true })).toHaveValue("");
+  await applyFilters(page, "项目目录筛选");
+  await expect(live.getByRole("link", { name: "合成分区活跃 ↗", exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("directory-all-desktop.png"), fullPage: true, animations: "disabled" });
+  await openFilters(page, "项目目录筛选");
+  await page.getByRole("textbox", { name: "搜索项目名称", exact: true }).fill(active.id);
+  await applyFilters(page, "项目目录筛选");
   await expect(live.locator(".project-card")).toHaveCount(1);
-  await page.screenshot({
-    path: info.outputPath("directory-desktop.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await page.screenshot({ path: info.outputPath("directory-desktop.png"), fullPage: true, animations: "disabled" });
 });
 
 test("shared project header and settings segments retain multi-role grants and real audit history", async ({

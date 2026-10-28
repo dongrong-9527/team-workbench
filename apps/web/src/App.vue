@@ -16,7 +16,6 @@ import { state, refreshSession } from "./state";
 import { command } from "./api/client";
 import AConfigProvider from "ant-design-vue/es/config-provider";
 import AButton from "ant-design-vue/es/button";
-import AInput from "ant-design-vue/es/input";
 import ASelect from "ant-design-vue/es/select";
 import ADrawer from "ant-design-vue/es/drawer";
 import AAvatar from "ant-design-vue/es/avatar";
@@ -68,7 +67,6 @@ function trapNavigationFocus(event: KeyboardEvent) {
 const route = useRoute(),
   router = useRouter(),
   loading = ref(true),
-  search = ref(""),
   error = ref("");
 const sessionDialogOpen = ref(false),
   sessionContext = ref("");
@@ -163,6 +161,18 @@ async function logout() {
   } catch (e) {
     error.value = (e as Error).message;
   }
+}
+function openGlobalSearch() {
+  void router.push({
+    path: "/projects",
+    query: {
+      work: "1",
+      openFilters: "1",
+      ...(route.path === "/projects" && typeof route.query.q === "string"
+        ? { q: route.query.q }
+        : {}),
+    },
+  });
 }
 </script>
 <template>
@@ -330,20 +340,9 @@ async function logout() {
                 ]"
               />
             </div>
-            <form
-              class="search"
-              @submit.prevent="
-                router.push({ path: '/projects', query: { q: search } })
-              "
-            >
-              <AInput
-                v-model:value="search"
-                aria-label="搜索编号或标题"
-                placeholder="搜索编号或标题"
-              /><AButton html-type="submit" aria-label="搜索"
-                ><SearchOutlined aria-hidden="true"
-              /></AButton>
-            </form>
+            <AButton class="global-search" aria-label="全局搜索" @click="openGlobalSearch">
+              <SearchOutlined aria-hidden="true" />全局搜索
+            </AButton>
             <span class="timezone">{{ dateLabel }}</span>
             <AButton
               class="tablet-logout"

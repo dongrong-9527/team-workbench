@@ -17,6 +17,7 @@ export interface FormSpec {
   projectId?: string;
   description?: string;
   impact?: string;
+  requirementEditor?: { mode: "create" | "refine" | "revise"; id?: string };
   relatedBugContext?: { projectId: string; requirementId?: string; taskId?: string; role?: string };
   fields: Field[];
   initial: Record<string, any>;
@@ -257,6 +258,7 @@ export function createForm(
   scopeMembers(fields, projectId, kind);
   return {
     title: `新建${zh(kind)}`,
+    ...(kind === "requirement" ? {requirementEditor:{mode:"create" as const},submit:"保存草稿"} : {}),
     cancelLabel: "返回并保留草稿",
     projectId,
     path: `/api/${kind === "requirement" ? "requirements" : kind === "task" ? "tasks" : "bugs"}`,
@@ -929,7 +931,8 @@ export function actionForm(
             initial.title = String(current.title ?? initial.title ?? "");
           }
         : undefined,
-    submit: action === "update" ? "保存更新" : `确认${title}`,
+    ...(req && (action === "refine" || action === "revise") ? {requirementEditor:{mode:action,id:o.id},projectId:o.projectId} : {}),
+    submit: req && (action === "refine" || action === "revise") ? "保存修改" : action === "update" ? "保存更新" : `确认${title}`,
     description: `${zh(kind)} · ${o.title} · 当前版本 ${o.version} · 负责人 ${nameOf(o.ownerId ?? o.acceptorId)}`,
     impact: ["cancel", "reopen", "transfer", "assign", "revise"].includes(
       action,

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures.js";
-import { login, submit, selectOption } from "./helpers.js";
+import { login, submit, selectOption, openRequirementDetails, openFilters, applyFilters } from "./helpers.js";
 import { api, detail } from "./audit-helpers.js";
 
 async function createTask(page: import("@playwright/test").Page, title: string, ownerId = "dev") {
@@ -14,11 +14,12 @@ test("F03 light drafts use real saves at desktop and phone widths and keep later
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/projects/p1");
     await page.getByRole("button", { name: "新建需求", exact: true }).click();
+    await openRequirementDetails(page);
     await page.getByLabel("标题", { exact: true }).fill(`合成F03待细化需求${width}`);
     await page.getByLabel("腾讯文档 / 来源链接（仅 HTTPS）", { exact: true }).fill("https://docs.example.test/synthetic");
     await expect(page.getByLabel("条目说明", { exact: true })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`F03-draft-${width}.png`), fullPage: true });
-    await submit(page, "确认新建需求");
+    await submit(page, "保存草稿");
     await expect(page).toHaveURL(/\/requirement\//);
     const id = new URL(page.url()).pathname.split("/").at(-1)!;
     const r = await api(page, "GET", `/api/requirements/${id}`);
@@ -60,7 +61,9 @@ test("F04 completed work remains discoverable for a real daily update after a re
   await expect(picker).toContainText("Synthetic progress temporarily unavailable");
   fail = false;
   await picker.getByRole("button", { name: "重试读取事项", exact: true }).click();
+  await openFilters(page, "工作更新事项筛选");
   await picker.getByLabel("搜索可补记事项", { exact: true }).fill(task.title);
+  await applyFilters(page, "工作更新事项筛选");
   await picker.getByRole("link", { name: task.title, exact: true }).click();
   const form = page.getByRole("dialog", { name: "写工作更新", exact: true });
   await form.getByLabel("今天实际做了什么", { exact: true }).fill("合成F04：完成后补记实际成果");

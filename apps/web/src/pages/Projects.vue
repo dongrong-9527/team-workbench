@@ -10,12 +10,14 @@ import ASelect from "ant-design-vue/es/select";
 import ATag from "ant-design-vue/es/tag";
 import AButton from "ant-design-vue/es/button";
 import AAlert from "ant-design-vue/es/alert";
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { state, zh, refreshDirectory, refreshProject } from "../state";
 import { request, type Page } from "../api/client";
 import { createForm, field, type FormSpec } from "../forms";
 import { useReadScope } from "../composables/readScope";
+import { decodeFilters, encodeFilters, workFilterSchema, type FilterValues } from "../composables/listFilters";
+import FilterPanel from "../components/FilterPanel.vue";
 import WorkList from "../components/WorkList.vue";
 import ActionForm from "../components/ActionForm.vue";
 import HistoryList from "../components/HistoryList.vue";
@@ -30,18 +32,40 @@ const route = useRoute(),
   cursor = ref<string | null>(null),
   error = ref(""),
   busy = ref(false),
-  kind = ref(""),
-  status = ref(""),
-  owner = ref(""),
-  blocked = ref(""),
-  archive = ref("all"),
   archivedExpanded = ref(false),
   form = ref<FormSpec>(),
   version = ref<number>(),
   formKey = ref(""),
   notice = ref(""),
-  projectSearch = ref(""),
   createdProjectId = ref("");
+const directoryDefaults = { keyword: "", archive: "all" };
+const directoryFilters = ref({ ...directoryDefaults });
+const directoryPanel = ref<InstanceType<typeof FilterPanel>>();
+const projectSearch = computed(() => directoryFilters.value.keyword);
+const archive = computed(() => directoryFilters.value.archive);
+const filterSchema = { ...workFilterSchema, keyword: { key: "q", default: "", max: 200 } };
+const filterDefaults = decodeFilters({}, filterSchema);
+const workFilters = computed(() => {
+  const values = decodeFilters(route.query, filterSchema);
+  if (["requirements", "tasks", "bugs", "tests"].includes(tab.value)) values.kind = "";
+  if (tab.value === "tests") values.status = "";
+  return values;
+});
+const kind = computed(() => workFilters.value.kind);
+const status = computed(() => workFilters.value.status);
+const owner = computed(() => workFilters.value.owner);
+const blocked = computed(() => workFilters.value.blocked);
+const workPanel = ref<InstanceType<typeof FilterPanel>>();
+async function applyWorkFilters(next: FilterValues) {
+  if (["requirements", "tasks", "bugs", "tests"].includes(tab.value)) next.kind = "";
+  if (tab.value === "tests") next.status = "";
+  const query = encodeFilters(route.query, next, filterSchema);
+  if (JSON.stringify(next) === JSON.stringify(workFilters.value)) await load();
+  else await router.push({ path: route.path, query, hash: route.hash });
+}
+function applyDirectoryFilters(next: FilterValues) {
+  directoryFilters.value = { keyword: next.keyword ?? "", archive: next.archive ?? "all" };
+}
 // Creation crosses App's route-path component key. Carry only a server-acknowledged
 // project id across that remount, and consume the URL marker once on arrival.
 const creationReceiptKey = () =>
@@ -111,8 +135,8 @@ const missingRoleText = computed(() =>
   missingRoles.value.map((role) => zh(role)).join("、"),
 );
 const listTitle = computed(() =>
-  route.query.q
-    ? "搜索“" + route.query.q + "”"
+  workFilters.value.keyword
+    ? "搜索“" + workFilters.value.keyword + "”"
     : tab.value === "tests"
       ? queue.value.label
       : ((
@@ -138,7 +162,6 @@ function navigateTab(
   extra: Record<string, string> = {},
   clearSearch = false,
 ) {
-  kind.value = status.value = owner.value = blocked.value = "";
   const destination = tabLocation(key, extra);
   if (clearSearch) delete destination.query.q;
   router.push(destination);
@@ -157,6 +180,16 @@ const projectId = computed(() =>
       "",
   ),
 );
+const isDirectory = computed(() => !projectId.value && !workFilters.value.keyword && route.query.work !== "1");
+const filterScope = computed(() => JSON.stringify([state.member?.id, projectId.value, tab.value, queue.value.key]));
+watch(() => route.query.openFilters, async (value) => {
+  if (value !== "1") return;
+  const { openFilters: _open, ...query } = route.query;
+  await router.replace({ path: route.path, query, hash: route.hash });
+  await nextTick();
+  workPanel.value?.openPanel();
+  workPanel.value?.scrollIntoView();
+}, { immediate: true, flush: "post" });
 const canManage = computed(() =>
   overview.value?.myRoles.some((r: any) => r.role === "product" || r.lead),
 );
@@ -193,27 +226,24 @@ const settingsSection = computed(() =>
     ? "history"
     : "basic",
 );
-function clearProjectFilters() {
-  projectSearch.value = "";
-  archive.value = "all";
-  archivedExpanded.value = false;
-}
-const reads = useReadScope(() =>
+const listIdentity = computed(() =>
   JSON.stringify([
+    state.member?.id,
     projectId.value,
     tab.value,
     requestKind.value,
     requestStatus.value,
     owner.value,
     blocked.value,
-    route.query.q,
+    workFilters.value.keyword,
   ]),
 );
+const reads = useReadScope(() => listIdentity.value);
 async function load(more = false) {
   const read = reads.begin(more);
   if (!read || (more && !cursor.value)) return;
   const id = projectId.value;
-  const search = route.query.q ? String(route.query.q) : "";
+  const search = workFilters.value.keyword;
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries({
     projectId: id,
@@ -250,19 +280,7 @@ async function load(more = false) {
     });
   }
 }
-watch(
-  () => [
-    projectId.value,
-    tab.value,
-    requestKind.value,
-    requestStatus.value,
-    owner.value,
-    blocked.value,
-    route.query.q,
-  ],
-  () => load(),
-  { immediate: true },
-);
+watch(listIdentity, () => load(), { immediate: true });
 function create(kind: string) {
   form.value = createForm(kind, projectId.value);
   version.value = undefined;
@@ -399,7 +417,6 @@ async function saved(result: any) {
         overview?.project ?? state.projects.find((p) => p.id === projectId)
       "
       :active="tab"
-      @navigate="kind = status = owner = blocked = ''"
     >
       <template #actions
         ><template v-if="overview">
@@ -450,28 +467,29 @@ async function saved(result: any) {
         >{{ error }}<AButton @click="load()">重试加载</AButton></template
       ></AAlert
     >
-    <template v-if="!projectId && !route.query.q">
-      <div class="directory-filters">
+    <template v-if="isDirectory">
+      <FilterPanel ref="directoryPanel" :model-value="directoryFilters" :defaults="directoryDefaults" :scope-key="String(state.member?.id ?? '')" label="项目目录筛选" @apply="applyDirectoryFilters" v-slot="{ draft }">
+      <div class="directory-filters filters">
         <AInput
-          v-model:value="projectSearch"
+          v-model:value="draft.keyword"
           aria-label="搜索项目名称"
           placeholder="搜索名称、编号或简介"
           allow-clear
         />
         <div class="archive-tabs" aria-label="项目归档筛选">
           <AButton
-            :type="archive === 'active' ? 'primary' : 'default'"
-            @click="archive = 'active'"
+            :type="draft.archive === 'active' ? 'primary' : 'default'"
+            @click="draft.archive = 'active'"
             >进行中的项目</AButton
           >
           <AButton
-            :type="archive === 'archived' ? 'primary' : 'default'"
-            @click="archive = 'archived'"
+            :type="draft.archive === 'archived' ? 'primary' : 'default'"
+            @click="draft.archive = 'archived'"
             >已归档</AButton
           >
           <AButton
-            :type="archive === 'all' ? 'primary' : 'default'"
-            @click="archive = 'all'"
+            :type="draft.archive === 'all' ? 'primary' : 'default'"
+            @click="draft.archive = 'all'"
             >全部项目</AButton
           >
         </div>
@@ -479,6 +497,8 @@ async function saved(result: any) {
           >当前筛选 {{ projects.length }} 个项目</span
         >
       </div>
+      <p class="filter-note">名称、编号与简介仅筛选已加载的完整项目目录。</p>
+      </FilterPanel>
       <section v-if="!state.projects.length" class="panel first-project">
         <span class="empty-project-icon"
           ><FolderOpenOutlined aria-hidden="true"
@@ -580,7 +600,7 @@ async function saved(result: any) {
         <section v-if="!projects.length" class="panel directory-empty">
           <h2>没有符合条件的项目</h2>
           <p>请调整项目名称、编号、简介或归档筛选。</p>
-          <AButton @click="clearProjectFilters">清除项目筛选</AButton>
+          <AButton @click="directoryPanel?.openPanel()">调整项目筛选</AButton>
         </section>
       </template>
     </template>
@@ -874,14 +894,15 @@ async function saved(result: any) {
         </div>
         <AButton @click="load()" :disabled="busy">刷新列表</AButton>
       </div>
-      <div v-if="tab !== 'tests'" class="filters">
-        <div>
+      <FilterPanel ref="workPanel" :model-value="workFilters" :defaults="filterDefaults" :scope-key="filterScope" label="项目工作筛选" @apply="applyWorkFilters" v-slot="{ draft }">
+      <div class="filters">
+        <div v-if="tab !== 'tests'">
           <label for="project-kind">工作类型</label
           ><ASelect
             id="project-kind"
-            :value="requestKind"
+            :value="['requirements', 'tasks', 'bugs'].includes(tab) ? requestKind : draft.kind"
             :disabled="['requirements', 'tasks', 'bugs'].includes(tab)"
-            @update:value="kind = typeof $event === 'string' ? $event : ''"
+            @update:value="draft.kind = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部类型' },
@@ -895,8 +916,8 @@ async function saved(result: any) {
           <label for="project-owner">负责人</label
           ><ASelect
             id="project-owner"
-            :value="owner"
-            @update:value="owner = typeof $event === 'string' ? $event : ''"
+            :value="draft.owner"
+            @update:value="draft.owner = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部负责人' },
@@ -907,12 +928,12 @@ async function saved(result: any) {
             ]"
           />
         </div>
-        <div>
+        <div v-if="tab !== 'tests'">
           <label for="project-status">状态</label
           ><ASelect
             id="project-status"
-            :value="status"
-            @update:value="status = typeof $event === 'string' ? $event : ''"
+            :value="draft.status"
+            @update:value="draft.status = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部状态' },
@@ -940,8 +961,8 @@ async function saved(result: any) {
           <label for="project-blocked">阻塞</label
           ><ASelect
             id="project-blocked"
-            :value="blocked"
-            @update:value="blocked = typeof $event === 'string' ? $event : ''"
+            :value="draft.blocked"
+            @update:value="draft.blocked = typeof $event === 'string' ? $event : ''"
             allow-clear
             :options="[
               { value: '', label: '全部' },
@@ -950,10 +971,12 @@ async function saved(result: any) {
             ]"
           />
         </div>
-        <AButton @click="kind = status = owner = blocked = ''"
-          >清除筛选</AButton
-        >
+        <div>
+          <label for="project-keyword">搜索编号或标题</label>
+          <AInput id="project-keyword" v-model:value="draft.keyword" aria-label="搜索编号或标题" placeholder="搜索编号或标题" :maxlength="200" allow-clear />
+        </div>
       </div>
+      </FilterPanel>
       <p v-if="busy" class="empty" role="status">正在读取…</p>
       <WorkList v-else :items="items" />
       <p v-if="!busy && !items.length && !error" class="empty">

@@ -11,6 +11,13 @@ export async function login(page: Page, account = "dev") {
 export async function action(page: Page, name: string) {
   await page.getByRole("button", { name, exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
+  await openRequirementDetails(page);
+}
+// Business-flow helpers expose fields they edit; layout tests open controls directly.
+export async function openRequirementDetails(page: Page) {
+  const details = page.getByRole("dialog").locator("details.requirement-extra-details");
+  if (await details.count() === 1 && await details.getAttribute("open") === null)
+    await details.locator("summary").click();
 }
 export async function submit(page: Page, name: string) {
   await page
@@ -144,4 +151,15 @@ export async function expectSelectedOption(
         )
         .locator(".ant-select-selection-item"),
     ).toHaveText(option.label);
+}
+
+// List filters are staged: test business controls through the visible panel.
+export async function openFilters(page: Page, label: string) {
+  const panel = page.getByRole("region", { name: label, exact: true });
+  const toggle = panel.getByRole("button", { name: /^筛选（/ });
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  return panel;
+}
+export async function applyFilters(page: Page, label: string) {
+  await page.getByRole("region", { name: label, exact: true }).getByRole("button", { name: "确定", exact: true }).click();
 }

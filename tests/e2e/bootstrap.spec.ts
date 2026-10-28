@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures.js';
-import { login, action, submit, selectOption } from './helpers.js';
+import { login, action, submit, selectOption, openFilters, applyFilters } from './helpers.js';
 let projectId = '', requirementUrl = '', taskUrl = '', bugUrl = '';
 test.describe.configure({mode:'serial'});
 test.use({baseURL:'https://127.0.0.1:4175'});
@@ -82,11 +82,11 @@ test('bootstrap requirement refinement and task assignment are reachable from pr
   await selectOption(page,'产品验收人',{value:'',label:'初始管理员'});
   await page.getByRole('button',{name:'添加条目',exact:true}).click();
   await page.getByLabel('条目说明',{exact:true}).fill('功能可验证');
-  await submit(page,'确认新建需求');
+  await submit(page,'保存草稿');
   await expect(page).toHaveURL(/\/requirement\//);
   requirementUrl = page.url();
   await action(page,'细化内容');
-  await submit(page,'确认细化内容');
+  await submit(page,'保存修改');
   await action(page,'确认可执行');
   await submit(page,'确认确认可执行');
   for (const assigned of [true,false]) {
@@ -174,7 +174,9 @@ test('bootstrap role management rejects missing or invalid project selection and
   await selectOption(page,'全局项目筛选',{value:'',label:'另一协作项目'});
   // SPA navigation retains the conflicting global selection while changing the route project.
   await page.getByRole('link',{name:'查看全部项目',exact:true}).click();
+  await openFilters(page, '项目目录筛选');
   await page.getByRole('button',{name:'全部项目',exact:true}).click();
+  await applyFilters(page, '项目目录筛选');
   await page.getByRole('region',{name:'已归档项目',exact:true}).getByRole('button',{name:/^▸ 已归档/}).click();
   await page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true}).click();
   await page.getByRole('link',{name:'管理本项目成员与角色',exact:true}).click();
@@ -184,7 +186,9 @@ test('bootstrap role management rejects missing or invalid project selection and
   await page.getByRole('link',{name:'返回项目 · 初次协作项目已编辑',exact:true}).click();
   await page.getByRole('link',{name:'查看全部项目',exact:true}).click();
   await expect(page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true})).toHaveCount(0);
+  await openFilters(page, '项目目录筛选');
   await page.getByRole('button',{name:'全部项目',exact:true}).click();
+  await applyFilters(page, '项目目录筛选');
   await page.getByRole('region',{name:'已归档项目',exact:true}).getByRole('button',{name:/^▸ 已归档/}).click();
   await expect(page.getByRole('link',{name:'初次协作项目已编辑 ↗',exact:true})).toBeVisible();
   for (const query of ['projectId', 'projectId=missing-a&projectId=missing-b']) {
