@@ -19,7 +19,7 @@ import { BUILD_IMAGE } from '/config/scripts/ci/artifact.mjs';
 writeFileSync('runtime-provenance.json', JSON.stringify({ nodeVersion: process.versions.node, nodeABI: process.versions.modules, arch: process.arch, platform: process.platform, buildGlibc: process.report.getReport().header.glibcVersionRuntime, buildImage: BUILD_IMAGE }));
 JS
 cd /source
-npm run package:release -- /source /work/candidate /work/dependencies /usr/local/bin/node candidate-6e35f34 > /work/package-build.log
+npm run package:release -- /source /work/candidate /work/dependencies /usr/local/bin/node candidate-9bf0241 > /work/package-build.log
 node /config/scripts/ci/artifact.mjs audit /work/candidate
 mkdir /work/delivery /work/unpacked
 tar -czf /work/delivery/candidate.tar.gz -C /work candidate
