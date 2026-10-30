@@ -201,6 +201,10 @@ export function useRequirementEditor(options: {
     if (ui.filesLost && !delivery.entries.length) ui.restored = true;
     options.persist();
     if (ui.restored) {
+      // An idempotent POST can replay an older state. Lost image bytes make
+      // this a restored receipt: verify the live object before enabling it.
+      ui.verified = false;
+      void verifyReceipt();
       void loadImages();
       return true;
     }

@@ -55,3 +55,22 @@ test("pending formal creation blocks both actions and dismissal without duplicat
  await page.route("**/api/requirements",async route=>{if(route.request().method()!=="POST")return route.continue();posts++;await gate;return route.continue();});
  const button=modal.getByRole("button",{name:formal,exact:true});await button.evaluate((el:HTMLButtonElement)=>{el.click();el.click();});await expect(modal.getByRole("button",{name:"返回",exact:true})).toBeDisabled();await expect(modal.locator(".mutation-submit")).toHaveCount(0);await page.keyboard.press("Escape");await page.mouse.click(2,2);await expect(modal).toBeVisible();expect(posts).toBe(1);release();await expect(page).toHaveURL(/\/requirement\//);expect(posts).toBe(1);
 });
+for (const changed of ["expectedCompletion", "priority"]) test(`changing ${changed} invalidates the earlier manual source declaration`, async ({page})=>{
+ const modal=await open(page);await complete(page,modal,"合成核对字段 "+changed);await checked(page);
+ if(changed==="expectedCompletion") await modal.getByLabel("期望完成时间",{exact:true}).fill("下个版本前");
+ else await selectOption(page,"优先级",{value:"high",label:"高"});
+ await expect(modal.getByText("已人工核对",{exact:true})).toHaveCount(0);
+ await modal.getByRole("button",{name:formal,exact:true}).click();await expect(modal.getByText("请选择来源核对结果。",{exact:true})).toBeInViewport();
+});
+test("restored unknown ready creation verifies current state before treating the replayed acknowledgement as usable",async({page})=>{
+ let modal=await open(page);await complete(page,modal,"合成未知恢复核对当前状态");
+ await modal.locator('input[type="file"]').setInputFiles({name:"lost-on-reload.png",mimeType:"image/png",buffer:await sharp({create:{width:8,height:8,channels:3,background:"#6688aa"}}).png().toBuffer()});await checked(page);
+ let id="";const keys:string[]=[];
+ await page.route("**/api/requirements",async route=>{if(route.request().method()!=="POST")return route.continue();keys.push(route.request().headers()["idempotency-key"]!);if(keys.length===1){const result=await route.fetch();id=(await result.json()).id;return route.abort();}return route.continue();});
+ await modal.getByRole("button",{name:formal,exact:true}).click();await expect(modal.getByRole("button",{name:"重试确认保存",exact:true})).toBeVisible();
+ await api(page,"POST",`/api/requirements/${id}/actions`,{action:"cancel",expectedVersion:1,reason:"合成其他产品取消",taskDisposition:[]});
+ page.once("dialog",dialog=>dialog.accept());await page.reload();await page.getByRole("button",{name:"新建需求",exact:true}).click();modal=page.getByRole("dialog",{name:"新建需求",exact:true});
+ let reads=0;await page.route("**/api/requirements/"+id,async route=>{if(route.request().method()!=="GET")return route.continue();reads++;if(reads===1)return route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"合成核对暂失败"})});return route.continue();});
+ await modal.getByRole("button",{name:"重试确认保存",exact:true}).click();await expect(modal.getByRole("button",{name:"重新核对保存回执",exact:true})).toBeVisible();await expect(modal.getByRole("button",{name:"查看已保存需求",exact:true})).toBeDisabled();
+ await modal.getByRole("button",{name:"重新核对保存回执",exact:true}).click();await expect(modal.getByText(/保存结果：已取消/)).toBeVisible();await expect(modal.getByRole("button",{name:"查看已保存需求",exact:true})).toBeEnabled();expect(reads).toBe(2);expect(keys).toHaveLength(2);expect(new Set(keys).size).toBe(1);
+});

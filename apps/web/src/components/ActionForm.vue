@@ -366,7 +366,7 @@ const requirementEditor = useRequirementEditor({
   saved:result=>emit("saved",result),
 });
 const anyUnknown = computed(() => requirementEditor.ui.unknown || creationUncertain.value);
-watch(() => JSON.stringify([values.value.title,values.value.description,values.value.sourceDescription,values.value.sourceUrl,values.value.criteria,values.value.acceptorId,values.value.role]), () => {
+watch(() => JSON.stringify([values.value.title,values.value.description,values.value.sourceDescription,values.value.sourceUrl,values.value.criteria,values.value.acceptorId,values.value.role,values.value.expectedCompletion,values.value.priority]), () => {
   if (props.spec.requirementEditor?.mode === "create" && !anyUnknown.value && !busy.value) values.value.sourceStatus = "";
 });
 const browserDraft = computed(() => canSaveBrowserDraft(props.spec, props.sensitive));
