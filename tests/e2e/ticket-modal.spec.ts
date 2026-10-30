@@ -1,0 +1,131 @@
+import { test, expect } from "./fixtures.js";
+import { login } from "./helpers.js";
+import { api } from "./audit-helpers.js";
+
+test("activation delivery opens a guarded modal and closing never creates another code", async ({ page }, info) => {
+  await login(page, "admin");
+  await page.goto("/members");
+  let writes = 0;
+  page.on("request", r => { if (r.method() === "POST" && new URL(r.url()).pathname === "/api/members") writes++; });
+  await page.getByRole("button", { name: "创建成员", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "创建成员", exact: true });
+  await create.getByLabel("登录账号（小写英文或数字）").fill("synthetic.modal.activate");
+  await create.getByLabel("显示名", { exact: true }).fill("合成激活弹框");
+  await create.getByRole("button", { name: "确认创建成员", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "激活码 · 仅本次显示", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("一次性票据", { exact: true })).toBeVisible();
+  await expect(dialog).toContainText("关闭后本页无法再次显示");
+  await expect(dialog.getByRole("button", { name: "返回并保留草稿", exact: true })).toHaveCount(0);
+  await expect(dialog.locator(".ant-modal-close")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.mouse.click(3, 3);
+  await expect(dialog).toBeVisible();
+  expect(writes).toBe(1);
+  await page.screenshot({ path: info.outputPath("synthetic-activation-modal-desktop.png") });
+  await dialog.getByRole("button", { name: "关闭查看", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  expect(writes).toBe(1);
+});
+
+test("reset modal keeps manual copy usable on narrow screens and discards display on route exit", async ({ page }, info) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "clipboard", { value: { writeText: async () => { throw new DOMException("Synthetic clipboard denial", "NotAllowedError"); } } }));
+  await login(page, "admin");
+  await api(page, "POST", "/api/members", { login: "synthetic.modal.reset", displayName: "合成重置弹框" });
+  await page.goto("/members");
+  const row = page.getByRole("row").filter({ hasText: "合成重置弹框" });
+  let writes = 0;
+  page.on("request", r => { if (r.method() === "POST" && /\/api\/members\/[^/]+\/reset$/.test(new URL(r.url()).pathname)) writes++; });
+  await row.getByRole("button", { name: "重置密码", exact: true }).click();
+  await page.getByRole("dialog", { name: "签发密码重置票据", exact: true }).getByRole("button", { name: "确认签发密码重置票据", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "密码重置码 · 仅本次显示", exact: true });
+  await expect(dialog).toBeVisible();
+  const code = await dialog.getByLabel("一次性票据", { exact: true }).inputValue();
+  await page.setViewportSize({ width: 390, height: 600 });
+  await dialog.getByRole("button", { name: "复制密码重置说明", exact: true }).click();
+  await expect(dialog.getByRole("alert").filter({ hasText: "手动复制" })).toBeVisible();
+  await dialog.getByRole("button", { name: "全选说明", exact: true }).click();
+  const manual = dialog.getByLabel("手动复制说明", { exact: true });
+  expect(await manual.evaluate((el: HTMLTextAreaElement) => el.selectionEnd - el.selectionStart)).toBeGreaterThan(100);
+  const box = await dialog.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await dialog.getByRole("button", { name: "关闭查看", exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "关闭查看", exact: true })).toBeInViewport();
+  await expect(dialog.getByText("密码重置码 · 仅本次显示", { exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("synthetic-reset-modal-mobile.png") });
+  await dialog.getByRole("link", { name: "打开本人重置表单", exact: true }).click();
+  await expect(page).toHaveURL(/\/reset$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/members$/);
+  await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(code);
+  expect(writes).toBe(1);
+});
+
+test("pending copy ignores duplicate clicks and closing cannot resurrect the code after clipboard rejection", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "clipboard", { value: { writeText: () => {
+    (window as any).__copyCalls = ((window as any).__copyCalls ?? 0) + 1;
+    return new Promise<void>((_, reject) => { (window as any).__rejectCopy = () => reject(new DOMException("Synthetic late denial", "NotAllowedError")); });
+  } } }));
+  await login(page, "admin");
+  await api(page, "POST", "/api/members", { login: "synthetic.modal.pending", displayName: "合成延迟复制" });
+  await page.goto("/members");
+  const row = page.getByRole("row").filter({ hasText: "合成延迟复制" });
+  let writes = 0;
+  page.on("request", r => { if (r.method() === "POST" && /\/api\/members\/[^/]+\/reset$/.test(new URL(r.url()).pathname)) writes++; });
+  await row.getByRole("button", { name: "重置密码", exact: true }).click();
+  await page.getByRole("dialog", { name: "签发密码重置票据", exact: true }).getByRole("button", { name: "确认签发密码重置票据", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "密码重置码 · 仅本次显示", exact: true });
+  const code = await dialog.getByLabel("一次性票据", { exact: true }).inputValue();
+  const copy = dialog.getByRole("button", { name: /复制密码重置说明/ });
+  await copy.click();
+  await expect(copy).toBeDisabled();
+  await copy.dispatchEvent("click");
+  await copy.dispatchEvent("click");
+  expect(await page.evaluate(() => (window as any).__copyCalls)).toBe(1);
+  await dialog.getByRole("button", { name: "关闭查看", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.evaluate(() => (window as any).__rejectCopy());
+  await row.getByRole("button", { name: "重置密码", exact: true }).click();
+  const confirmation = page.getByRole("dialog", { name: "签发密码重置票据", exact: true });
+  await expect(confirmation.getByLabel("一次性票据")).toHaveCount(0);
+  await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]))).not.toContain(code);
+  expect(writes).toBe(1);
+});
+
+test("keyboard close returns focus to the stable page heading after create, reset and self-reset", async ({ page }) => {
+  await login(page, "admin");
+  await page.goto("/members");
+  await page.getByRole("button", { name: "创建成员", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "创建成员", exact: true });
+  await create.getByLabel("登录账号（小写英文或数字）").fill("synthetic.modal.focus");
+  await create.getByLabel("显示名", { exact: true }).fill("合成弹框焦点");
+  await create.getByRole("button", { name: "确认创建成员", exact: true }).click();
+  for (const member of [null, "合成弹框焦点", "演示管理员"]) {
+    if (member) {
+      await page.getByRole("row").filter({ hasText: member }).getByRole("button", { name: "重置密码", exact: true }).click();
+      await page.getByRole("dialog", { name: "签发密码重置票据", exact: true }).getByRole("button", { name: "确认签发密码重置票据", exact: true }).click();
+    }
+    if (member === "演示管理员") {
+      const session = page.getByRole("dialog", { name: "登录会话已失效", exact: true });
+      await expect(session).toBeVisible();
+      await session.getByRole("button", { name: "取消", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(session).toBeHidden();
+    }
+    const delivery = page.getByRole("dialog", { name: member ? "密码重置码 · 仅本次显示" : "激活码 · 仅本次显示", exact: true });
+    await expect(delivery).toBeVisible();
+    await delivery.getByRole("button", { name: "关闭查看", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(delivery).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "成员管理", exact: true })).toBeFocused();
+    await expect(page.getByLabel("一次性票据")).toHaveCount(0);
+  }
+});

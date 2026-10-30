@@ -1,0 +1,25 @@
+import { afterEach, beforeEach, expect, it } from "vitest";
+import { createTestKit, type TestKit } from "./helpers.js";
+import { localDate } from "../apps/api/src/history/query.js";
+let f: TestKit;
+beforeEach(async () => { f = await createTestKit(); });
+afterEach(async () => { await f.close(); });
+it("manual Chinese report renders actual Bug states without changing historical drafts", async () => {
+  const created = await f.api<any>("POST", "/api/bugs", { projectId: "p1", title: "Synthetic Bug states", role: "backend", ownerId: "dev", expected: "Expected", actual: "Difference", reproduction: "Reproduce", environment: "Synthetic", severity: "normal", priority: "medium" }, "product");
+  expect(created.status).toBe(200);
+  let bug = created.body;
+  const input = { date: localDate(new Date().toISOString()), timeZone: "Asia/Shanghai", memberIds: ["product", "dev"], projectIds: ["p1"] };
+  const first = await f.api<any>("POST", "/api/reports", input, "product");
+  expect(first.status).toBe(200);
+  expect(first.body.text).toContain("待确认");
+  expect(first.body.text).not.toContain("unconfirmed");
+  bug = (await f.api<any>("POST", `/api/bugs/${bug.id}/actions`, { action: "confirm", expectedVersion: bug.version, reason: "Confirmed" }, "product")).body;
+  const ready = await f.api<any>("POST", "/api/reports", input, "product");
+  expect(ready.body.text).toContain("待修复");
+  bug = (await f.api<any>("POST", `/api/bugs/${bug.id}/actions`, { action: "start", expectedVersion: bug.version }, "dev")).body;
+  expect(bug.state).toBe("fixing");
+  const fixing = await f.api<any>("POST", "/api/reports", input, "product");
+  expect(fixing.body.text).toContain("修复中");
+  expect(fixing.body.text).not.toMatch(/fixing|unconfirmed/);
+  expect((await f.api<any>("GET", `/api/reports/${first.body.id}`)).body.text).toBe(first.body.text);
+});

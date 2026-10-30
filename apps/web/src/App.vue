@@ -1,0 +1,484 @@
+<script setup lang="ts">
+import {
+  AppstoreOutlined,
+  ProjectOutlined,
+  FileTextOutlined,
+  TeamOutlined,
+  MenuOutlined,
+  SearchOutlined,
+  RightOutlined,
+  EditOutlined,
+  BlockOutlined,
+} from "@ant-design/icons-vue";
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { state, refreshSession } from "./state";
+import { command } from "./api/client";
+import AConfigProvider from "ant-design-vue/es/config-provider";
+import AButton from "ant-design-vue/es/button";
+import ASelect from "ant-design-vue/es/select";
+import ADrawer from "ant-design-vue/es/drawer";
+import AAvatar from "ant-design-vue/es/avatar";
+import AModal from "ant-design-vue/es/modal";
+import AAlert from "ant-design-vue/es/alert";
+import { uiTheme, uiLocale } from "./ui";
+import ProjectShortcuts from "./components/ProjectShortcuts.vue";
+import { projectTabs } from "./projectNavigation";
+const navigation = [
+  { path: "/my-work", label: "我的工作", icon: AppstoreOutlined },
+  { path: "/projects", label: "项目", icon: ProjectOutlined },
+  { path: "/reports", label: "日报", icon: FileTextOutlined },
+  { path: "/members", label: "成员管理", icon: TeamOutlined },
+];
+const navOpen = ref(false);
+const navigationDialog = ref<HTMLElement>();
+const navTrigger = ref<InstanceType<typeof AButton>>();
+function restoreNavigationFocus(open: boolean) {
+  nextTick(() => {
+    if (open)
+      navigationDialog.value
+        ?.querySelector<HTMLButtonElement>("button")
+        ?.focus();
+    else navTrigger.value?.$el?.focus();
+  });
+}
+function trapNavigationFocus(event: KeyboardEvent) {
+  if (event.key !== "Tab") return;
+  const controls = Array.from(
+    navigationDialog.value?.querySelectorAll<HTMLElement>(
+      "a[href], button:not(:disabled), input:not(:disabled):not([type='hidden']), select:not(:disabled), textarea:not(:disabled), [tabindex]",
+    ) ?? [],
+  ).filter(
+    (control) =>
+      control.tabIndex >= 0 &&
+      control.getClientRects().length > 0 &&
+      !control.matches(":disabled, [aria-disabled='true']"),
+  );
+  const first = controls[0],
+    last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
+}
+const route = useRoute(),
+  router = useRouter(),
+  loading = ref(true),
+  error = ref("");
+const sessionDialogOpen = ref(false),
+  sessionContext = ref("");
+function sessionExpired() {
+  if (!state.member || state.expired) return;
+  sessionContext.value =
+    document.querySelector(".page-action-form h1")?.textContent?.trim() ||
+    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+      .find((element) => element.getClientRects().length)
+      ?.getAttribute("aria-label") ||
+    "当前普通工作草稿";
+  state.expired = true;
+  navOpen.value = false;
+  sessionDialogOpen.value = true;
+}
+function dismissSessionDialog() {
+  if (!state.mutationPending) sessionDialogOpen.value = false;
+}
+async function reLogin() {
+  if (state.mutationPending) return;
+  sessionDialogOpen.value = false;
+  await router.push({ path: "/login", query: { return: route.fullPath } });
+}
+watch(
+  () => state.expired,
+  (expired) => {
+    if (!expired) sessionDialogOpen.value = false;
+  },
+);
+const currentLabel = computed(() => {
+  if (route.path.startsWith("/projects/"))
+    return state.projects.find((p) => p.id === route.params.id)?.name ?? "项目";
+  if (/^\/(task|bug|requirement)\//.test(route.path)) return "工作详情";
+  return (
+    navigation.find((n) => route.path.startsWith(n.path))?.label ?? "账号设置"
+  );
+});
+const routeProject = computed(() => {
+  const id = route.path.startsWith("/projects/")
+    ? String(route.params.id ?? "")
+    : route.path === "/members" && typeof route.query.projectId === "string"
+      ? route.query.projectId
+      : "";
+  return state.projects.find((p) => p.id === id);
+});
+const projectCrumb = computed(() =>
+  route.path === "/members"
+    ? "成员与角色"
+    : route.query.tab === "settings" &&
+        (route.query.section === "history" || route.hash === "#project-history")
+      ? "归档与历史"
+      : projectTabs.find(
+          (t) => t.key === route.query.tab && t.key !== "overview",
+        )?.label,
+);
+const dateLabel = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  month: "long",
+  day: "numeric",
+  weekday: "short",
+}).format(new Date());
+watch(
+  () => route.fullPath,
+  () => {
+    navOpen.value = false;
+    if (["/login", "/activate", "/reset"].includes(route.path))
+      sessionDialogOpen.value = false;
+  },
+);
+const demo = import.meta.env.VITE_DEMO === "true";
+window.addEventListener("workbench:expired", sessionExpired);
+onUnmounted(() =>
+  window.removeEventListener("workbench:expired", sessionExpired),
+);
+onMounted(async () => {
+  try {
+    await refreshSession();
+  } catch {
+    if (!["/login", "/activate", "/reset"].includes(route.path))
+      await router.replace("/login");
+  } finally {
+    loading.value = false;
+  }
+});
+async function logout() {
+  if (state.mutationPending) return;
+  try {
+    await command().send("/api/auth/logout", {});
+    state.member = null;
+    state.expired = false;
+    await router.push("/login");
+  } catch (e) {
+    error.value = (e as Error).message;
+  }
+}
+function openGlobalSearch() {
+  void router.push({
+    path: "/projects",
+    query: {
+      work: "1",
+      openFilters: "1",
+      ...(route.path === "/projects" && typeof route.query.q === "string"
+        ? { q: route.query.q }
+        : {}),
+    },
+  });
+}
+</script>
+<template>
+  <AConfigProvider
+    :theme="uiTheme"
+    :locale="uiLocale"
+    :auto-insert-space-in-button="false"
+  >
+    <div v-if="loading" class="loading" role="status">正在载入工作台…</div>
+    <template v-else>
+      <div v-if="demo" class="demo-banner">
+        云端演示数据 · 非生产部署 <span>— 界面与流程持续验证中</span>
+      </div>
+      <div
+        v-if="
+          state.member &&
+          !['/login', '/activate', '/reset'].includes(route.path)
+        "
+        class="shell"
+      >
+        <aside class="sidebar" :inert="navOpen">
+          <RouterLink class="brand" to="/my-work"
+            ><span class="brand-icon"><BlockOutlined aria-hidden="true" /></span
+            ><span class="brand-name"
+              >协作工作台<span class="brand-sub">TEAM WORKSPACE</span></span
+            ></RouterLink
+          >
+          <div class="workspace-label">工作空间</div>
+          <nav aria-label="主导航">
+            <RouterLink
+              v-for="item in navigation"
+              :key="item.path"
+              :to="item.path"
+              :aria-label="item.label"
+              :title="item.label"
+              :class="{
+                'router-link-active':
+                  item.path === '/projects' &&
+                  /^\/(task|bug|requirement)\//.test(route.path),
+              }"
+              ><component :is="item.icon" aria-hidden="true" />
+              <span class="nav-label">{{
+                item.path === "/reports" ? "微信日报" : item.label
+              }}</span></RouterLink
+            >
+          </nav>
+          <ProjectShortcuts :active-id="routeProject?.id" />
+          <div class="sidebar-note">
+            <strong>记录事实，让协作更清楚</strong>
+            <p>今日进展会成为日报的来源。</p>
+            <RouterLink to="/my-work?progress=1">填写今日进展 →</RouterLink>
+          </div>
+          <div class="profile">
+            <AAvatar>{{ state.member.displayName.slice(0, 1) }}</AAvatar>
+            <div>
+              {{ state.member.displayName
+              }}<RouterLink to="/password">账号设置</RouterLink>
+            </div>
+            <AButton
+              type="text"
+              @click="logout"
+              :disabled="state.mutationPending"
+              aria-label="退出登录"
+            >
+              退出
+            </AButton>
+          </div>
+        </aside>
+        <ADrawer
+          v-model:open="navOpen"
+          :closable="false"
+          placement="left"
+          :width="280"
+          class="navigation-drawer"
+          @after-open-change="restoreNavigationFocus"
+        >
+          <section
+            ref="navigationDialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="团队工作区"
+            @keydown="trapNavigationFocus"
+          >
+            <div class="drawer-heading">
+              <h2>团队工作区</h2>
+              <AButton aria-label="收起导航" @click="navOpen = false"
+                >关闭</AButton
+              >
+            </div>
+            <nav aria-label="移动主导航" @click="navOpen = false">
+              <RouterLink
+                v-for="item in navigation"
+                :key="item.path"
+                :to="item.path"
+                ><component :is="item.icon" aria-hidden="true" />
+                {{ item.label }}</RouterLink
+              >
+              <RouterLink to="/password">账号设置</RouterLink>
+              <AButton @click="logout" :disabled="state.mutationPending"
+                >退出登录</AButton
+              >
+            </nav>
+            <ProjectShortcuts
+              :active-id="routeProject?.id"
+              mobile
+              @select="navOpen = false"
+            />
+          </section>
+        </ADrawer>
+        <div class="workspace" :inert="navOpen">
+          <header class="topbar">
+            <AButton
+              ref="navTrigger"
+              class="menu-toggle"
+              aria-label="展开导航"
+              :aria-expanded="navOpen"
+              @click="navOpen = true"
+              ><MenuOutlined aria-hidden="true"
+            /></AButton>
+            <nav class="topbar-context" aria-label="当前位置">
+              <RouterLink to="/my-work">工作空间</RouterLink
+              ><RightOutlined aria-hidden="true" />
+              <template v-if="routeProject">
+                <RouterLink :to="{ path: '/projects', query: { view: 'all' } }"
+                  >项目</RouterLink
+                ><RightOutlined aria-hidden="true" />
+                <RouterLink
+                  v-if="projectCrumb"
+                  class="crumb-project"
+                  :to="'/projects/' + routeProject.id"
+                  :title="routeProject.name"
+                  >{{ routeProject.name }}</RouterLink
+                >
+                <span v-else class="current-crumb" :title="routeProject.name">{{
+                  routeProject.name
+                }}</span>
+                <template v-if="projectCrumb"
+                  ><RightOutlined aria-hidden="true" /><span
+                    class="current-crumb"
+                    >{{ projectCrumb }}</span
+                  ></template
+                >
+              </template>
+              <span v-else class="current-crumb">{{ currentLabel }}</span>
+            </nav>
+            <div class="global-project">
+              <label for="global-project"
+                ><span aria-hidden="true">项目范围</span
+                ><span class="sr-only">全局项目筛选</span></label
+              >
+              <ASelect
+                id="global-project"
+                aria-label="全局项目筛选"
+                :value="state.projectId"
+                @update:value="
+                  state.projectId = typeof $event === 'string' ? $event : ''
+                "
+                allow-clear
+                :options="[
+                  { value: '', label: '全部项目' },
+                  ...state.projects.map((p) => ({
+                    value: p.id,
+                    label: p.name + (p.archived ? '（已归档）' : ''),
+                  })),
+                ]"
+              />
+            </div>
+            <AButton class="global-search" aria-label="全局搜索" @click="openGlobalSearch">
+              <SearchOutlined aria-hidden="true" />全局搜索
+            </AButton>
+            <span class="timezone">{{ dateLabel }}</span>
+            <AButton
+              class="tablet-logout"
+              type="text"
+              @click="logout"
+              :disabled="state.mutationPending"
+              aria-label="退出登录"
+              >退出</AButton
+            >
+            <RouterLink
+              class="topbar-avatar"
+              to="/password"
+              :aria-label="state.member.displayName + '的账号设置'"
+              ><AAvatar :size="28">{{
+                state.member.displayName.slice(0, 1)
+              }}</AAvatar></RouterLink
+            >
+            <div class="mobile-account">
+              <RouterLink to="/password">账号设置</RouterLink
+              ><AButton @click="logout" :disabled="state.mutationPending"
+                >退出登录</AButton
+              >
+            </div>
+          </header>
+          <main id="main">
+            <div v-if="error" class="error" role="alert">{{ error }}</div>
+            <div v-if="state.expired" class="error" role="alert">
+              登录已过期，普通工作草稿已保留。<RouterLink
+                :to="{ path: '/login', query: { return: route.fullPath } }"
+                >重新登录</RouterLink
+              >
+            </div>
+            <RouterView :key="String(state.member.id) + route.path" />
+          </main>
+          <footer>
+            <span>团队协作工作台 · 进展由本人填写</span
+            ><span>日报由人工核对，手动复制微信</span>
+          </footer>
+        </div>
+      </div>
+      <main v-else class="auth-layout"><RouterView /></main>
+      <AModal
+        v-if="
+          state.member &&
+          !['/login', '/activate', '/reset'].includes(route.path)
+        "
+        :open="sessionDialogOpen"
+        title="登录会话已失效"
+        :width="540"
+        :z-index="1400"
+        class="session-expired-modal"
+        :mask-closable="false"
+        :keyboard="!state.mutationPending"
+        :closable="!state.mutationPending"
+        @cancel="dismissSessionDialog"
+      >
+        <AAlert
+          type="warning"
+          show-icon
+          message="登录已过期，请重新登录后继续操作。"
+        />
+        <p>
+          本次请求未通过身份验证。普通工作草稿已保留，重新登录同一账号后可继续填写。
+        </p>
+        <p class="session-draft-context">当前未提交：{{ sessionContext }}。</p>
+        <p class="session-draft-note">
+          会话恢复前不能提交工作。图片与文字分别保存；本地图片在离开页面后需重新选择。
+        </p>
+        <template #footer>
+          <AButton
+            :disabled="state.mutationPending"
+            @click="dismissSessionDialog"
+            >取消</AButton
+          >
+          <AButton
+            type="primary"
+            :disabled="state.mutationPending"
+            @click="reLogin"
+            >重新登录</AButton
+          >
+        </template>
+      </AModal>
+    </template>
+  </AConfigProvider>
+</template>
+
+<style>
+.session-expired-modal p {
+  color: #65738b;
+  line-height: 1.8;
+}
+.session-expired-modal .session-draft-context {
+  padding: 14px 16px;
+  background: #f5f7fb;
+  border: 1px solid #e4e9f1;
+  border-radius: 6px;
+  color: #334562;
+}
+.session-expired-modal .session-draft-note {
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .session-expired-modal.ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: auto;
+  }
+}
+
+.topbar-context {
+  min-width: 0;
+  overflow: hidden;
+}
+.topbar-context > a {
+  flex-shrink: 0;
+}
+.topbar-context .crumb-project {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+.topbar-context .anticon {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .topbar-context .crumb-project {
+    max-width: 80px;
+  }
+  .topbar-context {
+    gap: 6px;
+  }
+  .topbar-context .current-crumb {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+}
+</style>
