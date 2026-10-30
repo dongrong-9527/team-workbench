@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type {
   Requirement,
   RequirementCommand,
+  RequirementCreateIntent,
 } from "../../../../packages/contracts/src/index.js";
 import { DomainError, mutate, type MutationContext } from "../db/mutate.js";
 import { createPolicy } from "../access/policy.js";
@@ -169,6 +170,51 @@ function authorize(
     },
   };
 }
+// Shared by existing confirmation and atomic creation; caller owns authorization
+// and the write transaction. New objects have no linked tasks before insertion.
+function assertExecutableRequirement(
+  db: Database,
+  r: Requirement,
+  tasks: { state: string; definitionOfDone?: string }[],
+): void {
+  if (
+    !r.description.trim() ||
+    !r.criteria.length ||
+    !r.criteria.some((c) => c.required)
+  )
+    throw new DomainError(
+      422,
+      "Description and required criteria are required",
+    );
+  if (
+    r.source.status === "checked"
+      ? !r.source.checkedAt
+      : r.source.status === "unable"
+        ? !r.source.reason
+        : true
+  )
+    throw new DomainError(422, "Source confirmation required");
+  if (!createPolicy(db).canWrite(r.acceptorId, r.projectId, "product"))
+    throw new DomainError(422, "Active product acceptor required");
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM execution_participations WHERE requirement_id=? AND member_id=?",
+      )
+      .get(r.id, r.acceptorId)
+  )
+    throw new DomainError(422, "Acceptor participated in execution");
+  if (
+    tasks.some(
+      (t) =>
+        !["cancelled", "done"].includes(t.state) &&
+        (typeof t.definitionOfDone !== "string" ||
+          !t.definitionOfDone.trim()),
+    )
+  )
+    throw new DomainError(422, "Task completion criteria required");
+}
+
 export function createRequirement(
   db: Database,
   ctx: MutationContext,
@@ -182,20 +228,22 @@ export function createRequirement(
     | "evidenceReady"
     | "scopeConfirmed"
     | "acceptorId"
-  > & { acceptorId?: string },
+  > & { acceptorId?: string; intent?: RequirementCreateIntent },
 ): Requirement {
+  const { intent = "draft", ...fields } = input;
+  if (intent !== "draft" && intent !== "ready") throw new DomainError(400, "Invalid creation intent");
   const auth = authorize(
     db,
     ctx,
     "",
-    "create",
+    intent === "ready" ? "createReady" : "create",
     input.projectId,
     input.role,
     input,
   );
   return mutate(db, auth, () => {
     const r: Requirement = {
-      ...input,
+      ...fields,
       acceptorId: input.acceptorId ?? "",
       id: randomUUID(),
       state: "draft",
@@ -205,6 +253,13 @@ export function createRequirement(
       evidenceReady: false,
       scopeConfirmed: false,
     };
+    if (intent === "ready") {
+      const { checkedAt: _clientTime, ...source } = r.source;
+      r.source = source.status === "checked" ? { ...source, checkedAt: new Date().toISOString() } : source;
+      assertExecutableRequirement(db, r, []);
+      r.state = "ready";
+      r.scopeConfirmed = true;
+    }
     db.prepare("INSERT INTO objects VALUES (?,'requirement',?,1,?)").run(
       r.id,
       r.projectId,
@@ -226,6 +281,7 @@ export function createRequirement(
       r.id,
       JSON.stringify({
         ...r,
+        ...(intent === "ready" ? { creationIntent: "ready" } : {}),
         actorName: actor.name,
         projectName: project.name,
         ownerId: r.acceptorId,
@@ -297,42 +353,7 @@ export function changeRequirement(
     if (cmd.action === "makeReady") {
       requireState(r, ["refining", "active"]);
       next.source = cmd.source as Requirement["source"];
-      if (
-        !next.description.trim() ||
-        !next.criteria.length ||
-        !next.criteria.some((c) => c.required)
-      )
-        throw new DomainError(
-          422,
-          "Description and required criteria are required",
-        );
-      if (
-        next.source.status === "checked"
-          ? !next.source.checkedAt
-          : next.source.status === "unable"
-            ? !next.source.reason
-            : true
-      )
-        throw new DomainError(422, "Source confirmation required");
-      if (!createPolicy(db).canWrite(next.acceptorId, r.projectId, "product"))
-        throw new DomainError(422, "Active product acceptor required");
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM execution_participations WHERE requirement_id=? AND member_id=?",
-          )
-          .get(id, next.acceptorId)
-      )
-        throw new DomainError(422, "Acceptor participated in execution");
-      if (
-        linkedTasks(db, id).some(
-          (t) =>
-            !["cancelled", "done"].includes(t.state) &&
-            (typeof t.definitionOfDone !== "string" ||
-              !t.definitionOfDone.trim()),
-        )
-      )
-        throw new DomainError(422, "Task completion criteria required");
+      assertExecutableRequirement(db, next, linkedTasks(db, id));
       next.scopeConfirmed = true;
       next.state = r.state === "active" ? "active" : "ready";
     }

@@ -40,6 +40,8 @@ export interface AuthorizationFields {
   creatorId?: Id;
 }
 
+export type RequirementCreateIntent = "draft" | "ready";
+
 export type RequirementState =
   | "draft"
   | "refining"

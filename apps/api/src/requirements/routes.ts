@@ -171,9 +171,11 @@ export function requirementRoutes(app: FastifyInstance, db: Database) {
       const b = fields(
         request.body,
         ["projectId", "title", "source", "description", "criteria", "priority"],
-        ["role", "acceptorId", "expectedCompletion"],
+        ["role", "acceptorId", "expectedCompletion", "intent"],
       );
       text(b.projectId, 1, 128);
+      if (b.intent !== undefined && !["draft", "ready"].includes(String(b.intent)))
+        throw new DomainError(400, "Invalid creation intent");
       validate(b);
       return createRequirement(db, ctx, b as any);
     },
