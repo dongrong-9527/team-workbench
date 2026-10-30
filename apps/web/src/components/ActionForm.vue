@@ -18,6 +18,7 @@ import type { FormInstance } from "ant-design-vue/es/form";
 import AModal from "ant-design-vue/es/modal";
 import AAlert from "ant-design-vue/es/alert";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
+import type { RequirementCreateIntent } from "../../../../packages/contracts/src/index.js";
 import type { FormSpec, Field } from "../forms";
 import { formCancelPresentation, canSaveBrowserDraft } from "../forms";
 import { compatibleDraft, type DraftContext } from "../formDraft";
@@ -342,6 +343,8 @@ const values = ref<Record<string, any>>(
   conflict = ref<Record<string, unknown>>(),
   form = ref<FormInstance>(),
   reasons = ref<any[]>([]);
+const readyCreation = computed(() => props.spec.requirementEditor?.mode === "create" && !!props.spec.requirementEditor.canSubmitReady && state.projects.find(p=>p.id===props.spec.projectId)?.myRoles.some(r=>r.role==="product"));
+if (props.spec.requirementEditor?.mode === "create" && !stored?.requirementDelivery?.unknown) values.value.sourceStatus = "";
 const returnConfirmation = ref(false),
   serverGateOk = ref<boolean>();
 const otherPending = computed(() => state.mutationPending && !busy.value);
@@ -363,6 +366,9 @@ const requirementEditor = useRequirementEditor({
   saved:result=>emit("saved",result),
 });
 const anyUnknown = computed(() => requirementEditor.ui.unknown || creationUncertain.value);
+watch(() => JSON.stringify([values.value.title,values.value.description,values.value.sourceDescription,values.value.sourceUrl,values.value.criteria,values.value.acceptorId,values.value.role]), () => {
+  if (props.spec.requirementEditor?.mode === "create" && !anyUnknown.value && !busy.value) values.value.sourceStatus = "";
+});
 const browserDraft = computed(() => canSaveBrowserDraft(props.spec, props.sensitive));
 const fieldsDisabled = computed(() => busy.value || state.expired || otherPending.value || returnConfirmation.value || anyUnknown.value);
 const clearCancel = ref<{ $el: HTMLElement }>(), discardContinue = ref<{ $el: HTMLElement }>(), storageContinue = ref<{ $el: HTMLElement }>();
@@ -415,6 +421,13 @@ function saveBrowserDraft() {
   if (!browserDraft.value || busy.value || otherPending.value || state.expired || anyUnknown.value || state.member?.id !== actor) return;
   localDraftNotice.value = persist() ? "草稿已保存在当前浏览器，尚未提交业务数据。" : "草稿保存失败，内容仍在当前页面，请勿直接离开。";
 }
+async function submitReady() {
+  if (!readyCreation.value || busy.value || otherPending.value || state.expired || anyUnknown.value || conflict.value) return;
+  requirementEditor.ui.detailsOpen = true;
+  await nextTick();
+  try { await form.value?.validate(); } catch (failure) { await validationFailed(failure as {errorFields?:{name:(string|number)[]}[]}); return; }
+  await send("ready");
+}
 async function submit() {
   if (busy.value || otherPending.value || state.expired) return;
   if (
@@ -439,7 +452,7 @@ async function confirmReturn() {
   }
   await send();
 }
-async function send() {
+async function send(intent?: RequirementCreateIntent) {
   if (busy.value) return;
   if (state.expired || otherPending.value || acceptancePassBlocked.value)
     return;
@@ -459,7 +472,7 @@ async function send() {
       if (!compatibleDraft({context:draftContext,fingerprint,key},draftContext)) throw new Error("无法恢复原创建请求，请先核对列表；不会重新创建。");
       originalBody = JSON.parse(fingerprint)[2];
     }
-    const body = originalBody ?? props.spec.body(values.value);
+    const body = originalBody ?? props.spec.body(values.value, intent);
     if (!originalBody && version.value !== undefined) body.expectedVersion = version.value;
     if (
       new TextEncoder().encode(JSON.stringify(body)).byteLength >
@@ -503,6 +516,11 @@ async function send() {
     if (e instanceof ApiError) {
       conflict.value = e.code === 409 && !anyUnknown.value ? e.current : undefined;
       reasons.value = e.reasons ?? [];
+    }
+    if (intent === "ready") {
+      requirementEditor.ui.detailsOpen = true;
+      await nextTick();
+      form.value?.$el?.querySelector(".mutation-command-error")?.scrollIntoView({block:"nearest"});
     }
   } finally {
     release();
@@ -762,10 +780,12 @@ onUnmounted(() => {
         @keydown="finishPopupKeydown"
       >
         <section v-if="requirementEditor.ui.receipt" class="requirement-delivery" aria-label="需求保存与图片交付">
-          <AAlert :type="requirementEditor.ui.verified?'success':'info'" :message="requirementEditor.ui.verified?'需求已保存：'+requirementEditor.ui.savedTitle:'正在核对保存回执…'" show-icon />
+          <AAlert :type="requirementEditor.ui.verified?'success':'info'" :message="requirementEditor.ui.verified?'需求已保存：'+requirementEditor.ui.savedTitle+(requirementEditor.ui.savedState?' · 保存结果：'+zh(requirementEditor.ui.savedState):''):'正在核对保存回执…'" show-icon />
           <p class="body-text">需求编号：{{ requirementEditor.ui.receipt.id }}</p>
           <p v-if="requirementEditor.ui.restored">图片未在刷新后保留，请查看已保存需求，核对已有截图后再重新选择。</p>
-          <p v-else role="status">{{ requirementEditor.delivery.successfulCount }} 张成功，{{ requirementEditor.delivery.failedCount }} 张失败；图片结果与文字保存分别确认。</p>
+          <p v-if="spec.requirementEditor?.mode==='create' && ['ready','active','pending_acceptance','accepted'].includes(requirementEditor.ui.savedState)" class="body-text">需求已提交为待开始，图片失败不会撤回需求，其他成员可能已开始处理；请以详情当前状态为准。</p>
+          <p v-else-if="spec.requirementEditor?.mode==='create' && requirementEditor.ui.savedState==='draft'" class="body-text">本次保存为服务器草稿；后续状态请以需求详情为准。</p>
+          <p v-if="!requirementEditor.ui.restored" role="status">{{ requirementEditor.delivery.successfulCount }} 张成功，{{ requirementEditor.delivery.failedCount }} 张失败；图片结果与文字保存分别确认。</p>
           <AAlert v-if="requirementEditor.ui.receiptError" type="error" :message="requirementEditor.ui.receiptError" show-icon />
           <RequirementImagePicker :delivery="requirementEditor.delivery" :existing="requirementEditor.ui.existing" :error="requirementEditor.ui.imageReadError" :loading="requirementEditor.ui.loadingImages" :restored="requirementEditor.ui.restored" :disabled="busy||state.expired||otherPending||requirementEditor.ui.restored" @add="requirementEditor.add" @remove="requirementEditor.delivery.remove($event)" @reload="requirementEditor.loadImages" />
           <AAlert v-if="requirementEditor.ui.selectionError" type="error" :message="requirementEditor.ui.selectionError" />
@@ -779,11 +799,11 @@ onUnmounted(() => {
         </section>
         <section v-if="requirementEditor.ui.unknown&&!requirementEditor.ui.receipt" class="requirement-pending-command">
           <AAlert type="warning" message="保存结果暂未确认，原请求已保留；请重试确认，避免重复创建或重复修改。" show-icon />
-          <AButton :disabled="busy||state.expired||otherPending" :loading="busy" @click="send">重试确认保存</AButton>
+          <AButton :disabled="busy||state.expired||otherPending" :loading="busy" @click="send()">重试确认保存</AButton>
         </section>
         <section v-if="creationUncertain" class="requirement-pending-command">
           <AAlert type="warning" message="创建结果暂未确认，已保留原请求；请按原请求重试，返回或刷新后也不会重新创建。" show-icon />
-          <AButton :disabled="busy||state.expired||otherPending" :loading="busy" @click="send">重试确认创建</AButton>
+          <AButton :disabled="busy||state.expired||otherPending" :loading="busy" @click="send()">重试确认创建</AButton>
         </section>
         <AForm
           v-show="!requirementEditor.ui.receipt"
@@ -1163,6 +1183,7 @@ onUnmounted(() => {
             />
             <AAlert
               v-else-if="error"
+              class="mutation-command-error"
               type="error"
               role="alert"
               :message="error"
@@ -1185,7 +1206,7 @@ onUnmounted(() => {
             <AButton
               v-if="!anyUnknown"
               class="mutation-submit"
-              type="primary"
+              :type="readyCreation ? 'default' : 'primary'"
               html-type="submit"
               :disabled="
                 busy ||
@@ -1200,9 +1221,10 @@ onUnmounted(() => {
                 busy ? "正在提交…" : (spec.submit ?? `确认${spec.title}`)
               }}</AButton
             >
+            <AButton v-if="readyCreation && !anyUnknown" class="mutation-submit mutation-submit-ready" type="primary" :loading="busy" :disabled="busy||state.expired||otherPending||returnConfirmation||!!conflict" @click="submitReady">提交为可执行需求</AButton>
             <p v-if="localDraftNotice" role="status" class="local-draft-feedback">{{ localDraftNotice }}</p>
             <span v-if="cancelPresentation.showDraftHints" class="muted mutation-draft-caption"
-              >{{ !draftPersisted?'浏览器暂存失败，当前页面内容尚在，离开可能丢失。':browserDraft?'仅保存在当前浏览器，图片不随草稿保存。':spec.requirementEditor?.mode==='create'?'保存草稿将创建服务器需求；文字会暂存本浏览器，图片不随刷新恢复。':'普通输入已在当前账号浏览器自动暂存，尚未提交。' }}</span
+              >{{ !draftPersisted?'浏览器暂存失败，当前页面内容尚在，离开可能丢失。':browserDraft?'仅保存在当前浏览器，图片不随草稿保存。':spec.requirementEditor?.mode==='create'?(readyCreation?'草稿保存在服务器；正式提交即待开始，随后传图，失败不撤回。':'保存草稿将创建服务器需求；文字会暂存本浏览器，图片不随刷新恢复。'):'普通输入已在当前账号浏览器自动暂存，尚未提交。' }}</span
             >
           </div>
         </AForm>

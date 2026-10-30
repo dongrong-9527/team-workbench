@@ -43,6 +43,7 @@ export function useRequirementEditor(options: {
     restored: false,
     verified: false,
     savedTitle: "",
+    savedState: "",
     existing: [] as { id: string }[],
     loadingImages: false,
     imageReadError: "",
@@ -196,6 +197,7 @@ export function useRequirementEditor(options: {
     ui.unknown = false;
     ui.savedTitle = String(value.title ?? options.values.value.title ?? "");
     result = value;
+    ui.savedState = String(value.state ?? "");
     if (ui.filesLost && !delivery.entries.length) ui.restored = true;
     options.persist();
     if (ui.restored) {
@@ -369,6 +371,7 @@ export function useRequirementEditor(options: {
       )
         throw new Error("保存回执与当前项目不一致。");
       result = current;
+      ui.savedState = String(current.state ?? "");
       ui.savedTitle = current.title;
       ui.verified = true;
       delivery.bindTarget(savedReceipt);

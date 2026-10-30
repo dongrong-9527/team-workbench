@@ -31,11 +31,11 @@
 - [x] Run all unit/API and types GREEN, document contract and commit.
 
 ### Task2: Dual action Modal and recovery/image status
-**Files:** forms.ts, ActionForm.vue, composable requirementEditor.ts; tests/e2e/requirement-create-actions.spec.ts and form policy tests.
+**Files:** forms.ts, ActionForm.vue, HistoryList.vue, composable requirementEditor.ts; tests/e2e/requirement-create-actions.spec.ts and form policy tests.
 **Interfaces:** requirementEditor.canSubmitReady flag from actual product role; body(values,intent?) includes chosen create intent. UI formal action validates full input and opens details on error. send(intent?) reuses pending original body, busy/unknown blocks both actions. Source choice defaults/reset to unselected on ordinary restore/substantive edits. Receipt retains acknowledged state for correct image handoff and verifies current state after restore.
-- [ ] Write real browser RED: minimum draft, full ready/permissions/unselected source, edit-reset, invalid retains image without create, unknown replay/reload/403 same key, partial image delivery and duplicate clicks, desktop/390px.
-- [ ] Implement minimal UI and accurate status; keep existing draft and editor behavior.
-- [ ] Run focused and related image/Modal/workflow browsers, unit/API/types/build GREEN and commit.
+- [x] Write real browser RED: minimum draft, full ready/permissions/unselected source, edit-reset, invalid retains image without create, unknown replay/reload/403 same key, partial image delivery and duplicate clicks, desktop/390px.
+- [x] Implement minimal UI and accurate status; keep existing draft and editor behavior.
+- [x] Run focused and related image/Modal/workflow browsers, unit/API/types/build GREEN and commit.
 
 ### Task3: Review and fixed candidate
 - [ ] Fresh independent whole-change review against baseline4d682c71; fix meaningful findings RED→GREEN.

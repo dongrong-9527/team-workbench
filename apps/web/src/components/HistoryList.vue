@@ -95,6 +95,14 @@ function projectRoles(snapshot: Record<string, unknown> | null | undefined) {
     lead: number;
   }[];
 }
+function creationSource(entry: HistoryEntry): string {
+  const source = entry.after?.source;
+  if (!source || typeof source !== "object") return "";
+  const value = source as Record<string, unknown>;
+  if (value.status === "checked") return "已人工核对";
+  if (value.status === "unable") return "无法核对" + (typeof value.reason === "string" ? "；原因：" + value.reason : "");
+  return "";
+}
 const fields: Record<string, string> = {
   title: "标题",
   description: "说明",
@@ -127,11 +135,12 @@ const fields: Record<string, string> = {
       <ul class="history">
         <li v-for="e in items" :key="e.seq">
           <strong>{{ e.actorName ?? e.actorId }}</strong> ·
-          {{ action(e.action) }}
+          {{ kind === "requirement" && e.action === "created" && e.after?.creationIntent === "ready" ? "创建并确认可执行" : action(e.action) }}
           <time>{{ e.localTime }} · #{{ e.seq }}</time>
           <p v-if="e.before?.state || e.after?.state">
             {{ zh(e.before?.state) }} → {{ zh(e.after?.state) }}
           </p>
+          <p v-if="kind === 'requirement' && e.action === 'created' && e.after?.creationIntent === 'ready'">来源核对：{{ creationSource(e) }}</p>
           <p v-if="e.reason">原因：{{ e.reason }}</p>
           <details v-if="e.before || e.after">
             <summary>查看变更内容</summary>

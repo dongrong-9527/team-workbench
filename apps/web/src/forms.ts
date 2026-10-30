@@ -1,3 +1,4 @@
+import type { RequirementCreateIntent } from "../../../packages/contracts/src/index.js";
 import { state, nameOf, zh, today, projectOf } from "./state.js";
 export interface Field {
   key: string;
@@ -17,7 +18,7 @@ export interface FormSpec {
   projectId?: string;
   description?: string;
   impact?: string;
-  requirementEditor?: { mode: "create" | "refine" | "revise"; id?: string };
+  requirementEditor?: { mode: "create" | "refine" | "revise"; id?: string; canSubmitReady?: boolean };
   relatedBugContext?: { projectId: string; requirementId?: string; taskId?: string; role?: string };
   fields: Field[];
   initial: Record<string, any>;
@@ -26,7 +27,7 @@ export interface FormSpec {
   submit?: string;
   cancelLabel?: "取消" | "返回";
   browserDraft?: boolean;
-  body: (v: any) => Record<string, any>;
+  body: (v: any, intent?: RequirementCreateIntent) => Record<string, any>;
   adopt?: (
     current: Record<string, unknown>,
     values: Record<string, any>,
@@ -162,6 +163,23 @@ function criteria(v: any) {
     ...(!c.required ? { exclusionReason: c.exclusionReason } : {}),
   }));
 }
+function sourceDecisionField() {
+  return field("sourceStatus", "来源核对结果", "select", false, {
+    options: [{value:"checked",label:"已人工核对"},{value:"unable",label:"无法核对"}],
+    help: "请主动选择；无法核对时需说明原因。",
+  });
+}
+function requirementCreateBody(v: any, projectId: string, product: boolean, intent: RequirementCreateIntent = "draft") {
+  if (intent === "ready" && !product) throw new Error("仅项目产品可以提交为可执行需求。");
+  const body = {projectId,...pick(v,["title","priority","role",...(product?["acceptorId"]:[])]),description:v.description??"",expectedCompletion:v.expectedCompletion??"",source:source(v),criteria:criteria(v.criteria)};
+  if (intent !== "ready") return body;
+  if (!body.description.trim()) throw new Error("请填写需求细化说明。");
+  if (!v.acceptorId) throw new Error("请选择产品验收人。");
+  if (!body.criteria.some((c: any)=>c.required)) throw new Error("请添加至少一个必需验收条目。");
+  if (!["checked","unable"].includes(v.sourceStatus)) throw new Error("请选择来源核对结果。");
+  if (v.sourceStatus === "unable" && !v.sourceReason?.trim()) throw new Error("请填写无法核对原因。");
+  return {...body,intent:"ready",source:{...body.source,status:v.sourceStatus,...(v.sourceStatus==="unable"?{reason:v.sourceReason}:{})}};
+}
 export function createForm(
   kind: string,
   projectId: string,
@@ -182,6 +200,8 @@ export function createForm(
     requirementId: requirementId ?? "",
     sourceDescription: "",
     sourceUrl: "",
+    sourceStatus: "",
+    sourceReason: "",
     description: "",
     expectedCompletion: "",
     acceptorId: "",
@@ -259,31 +279,20 @@ export function createForm(
     const index = fields.findIndex((f) => f.key === "acceptorId");
     fields.splice(index, 1);
   }
+  if (kind === "requirement" && isProduct) fields.push(sourceDecisionField(), field("sourceReason", "无法核对原因", "textarea", false, {when:v=>v.sourceStatus==="unable"}));
   scopeMembers(fields, projectId, kind);
   return {
     title: `新建${zh(kind)}`,
-    ...(kind === "requirement" ? {requirementEditor:{mode:"create" as const},submit:"保存草稿"} : {}),
+    ...(kind === "requirement" ? {requirementEditor:{mode:"create" as const,canSubmitReady:!!isProduct},submit:"保存草稿"} : {}),
     cancelLabel: "返回",
     browserDraft: kind !== "requirement",
     projectId,
     path: `/api/${kind === "requirement" ? "requirements" : kind === "task" ? "tasks" : "bugs"}`,
     fields,
     initial,
-    body: (v) =>
+    body: (v, intent) =>
       kind === "requirement"
-        ? {
-            projectId,
-            ...pick(v, [
-              "title",
-              "priority",
-              "role",
-              ...(isProduct ? ["acceptorId"] : []),
-            ]),
-            description: v.description ?? "",
-            expectedCompletion: v.expectedCompletion ?? "",
-            source: source(v),
-            criteria: criteria(v.criteria),
-          }
+        ? requirementCreateBody(v,projectId,!!isProduct,intent)
         : kind === "task"
           ? {
               projectId,
@@ -740,7 +749,7 @@ export function actionForm(
   }
   if (action === "makeReady") {
     fields = [
-      select("sourceStatus", "来源核对结果", ["checked", "unable"]),
+      {...sourceDecisionField(),required:true},
       field("sourceDescription", "来源说明", "textarea"),
       field("sourceUrl", "来源链接（HTTPS）", "url", false),
       field("sourceReason", "无法核对原因", "textarea", true, {
