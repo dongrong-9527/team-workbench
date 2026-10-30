@@ -37,7 +37,7 @@ jobs:
       - name: Checkout fixed application source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: 954fc7b6335b2ed72886d8b9b2183e73fdd3293b
+          ref: 69b189c2622a145874946123069abe29850dd94c
           path: application-source
           persist-credentials: false
       - name: Build, audit, unpack and smoke candidate
@@ -47,7 +47,7 @@ jobs:
         id: candidate-upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: candidate-954fc7b-linux-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          name: candidate-69b189c-linux-x64-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/linux-candidate/delivery/candidate.tar.gz
             ${{ runner.temp }}/linux-candidate/delivery/SHA256SUMS
